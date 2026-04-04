@@ -50,8 +50,8 @@ print(resp.choices[0].message.content)
 |------|------|
 | `deepseek-v3` | ✅ 可用 |
 | `claude-4.0` | ✅ 可用 |
-| `gpt-4o` / `gpt-5` / `o4-mini` | ⚠️ 存在但调用失败 |
-| `gemini-2.5-pro` / `gemini-2.5-flash` | ⚠️ 仅授权用户 |
+- 注：CN支持什么模型就能用什么模型！
+
 
 ## API 端点
 
