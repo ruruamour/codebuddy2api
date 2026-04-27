@@ -29,6 +29,8 @@ type Config struct {
 	DebugRequests          bool
 	AutoDisableStatusCodes map[int]struct{}
 	AutoDisableQuotaErrors bool
+	AdminTrustCFAccess     bool
+	AdminAccessEmails      map[string]struct{}
 }
 
 func LoadConfig() Config {
@@ -56,6 +58,8 @@ func LoadConfig() Config {
 		DebugRequests:          envBool("CODEBUDDY2API_DEBUG_REQUESTS", false),
 		AutoDisableStatusCodes: envIntSet("CODEBUDDY2API_AUTO_DISABLE_STATUS_CODES", "401,403"),
 		AutoDisableQuotaErrors: envBool("CODEBUDDY2API_AUTO_DISABLE_QUOTA_ERRORS", true),
+		AdminTrustCFAccess:     envBool("CODEBUDDY2API_ADMIN_TRUST_CF_ACCESS", true),
+		AdminAccessEmails:      envStringSet("CODEBUDDY2API_ADMIN_ACCESS_EMAILS", ""),
 	}
 }
 
@@ -116,6 +120,14 @@ func envIntSet(name string, fallback string) map[int]struct{} {
 		if err == nil {
 			result[parsed] = struct{}{}
 		}
+	}
+	return result
+}
+
+func envStringSet(name string, fallback string) map[string]struct{} {
+	result := map[string]struct{}{}
+	for _, item := range splitCSV(envString(name, fallback)) {
+		result[strings.ToLower(item)] = struct{}{}
 	}
 	return result
 }

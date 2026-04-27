@@ -193,11 +193,11 @@
           <div class="label">Admin Key</div>
           <input id="adminKey" type="password" autocomplete="off" placeholder="填写 CODEBUDDY2API_ADMIN_KEY" />
         </label>
-        <button id="saveKey" class="secondary" type="button">保存到本浏览器</button>
+        <button id="saveKey" class="secondary" type="button">保存</button>
         <button id="clearKey" class="ghost" type="button">清除</button>
         <button id="refresh" type="button">刷新数据</button>
       </div>
-      <div class="muted small">只保存在当前浏览器 localStorage；请求 Admin API 时作为 Authorization: Bearer 发送。服务端不会把完整 ck Key 返回到页面。</div>
+      <div class="muted small">通过 Cloudflare Access 登录时可直接管理；也可以手动填写 Admin Key，保存后请求 Admin API 时作为 Authorization: Bearer 发送。服务端不会把完整 ck Key 返回到页面。</div>
     </section>
 
     <div id="tab-overview">
@@ -330,7 +330,7 @@
     });
     document.getElementById("saveKey").addEventListener("click", () => {
       localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-      show("管理口令已保存到当前浏览器。");
+      show("已保存。");
     });
     document.getElementById("clearKey").addEventListener("click", () => {
       localStorage.removeItem("codebuddy2api.adminKey");
@@ -445,8 +445,8 @@
         renderAccounts();
         document.getElementById("lastRefresh").textContent = `最后刷新：${new Date().toLocaleString("zh-CN", { hour12: false })}`;
       } catch (err) {
-        document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已经填写并保存 Admin Key，然后点击“刷新数据”。</div>';
-        document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。Admin API 需要管理口令。</div>';
+        document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key 后点击“刷新数据”。</div>';
+        document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key。</div>';
         show(err.message, true);
       }
     }

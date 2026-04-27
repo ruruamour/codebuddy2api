@@ -324,6 +324,10 @@ func (s *Server) withClientAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) withAdminAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s.trustedCloudflareAccessAdmin(r) {
+			next(w, r)
+			return
+		}
 		tokens := s.cfg.AdminTokens()
 		if len(tokens) == 0 {
 			next(w, r)
@@ -338,6 +342,22 @@ func (s *Server) withAdminAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		writeJSON(w, http.StatusUnauthorized, map[string]any{"detail": "invalid admin API key"})
 	}
+}
+
+func (s *Server) trustedCloudflareAccessAdmin(r *http.Request) bool {
+	if !s.cfg.AdminTrustCFAccess {
+		return false
+	}
+	email := strings.ToLower(strings.TrimSpace(r.Header.Get("Cf-Access-Authenticated-User-Email")))
+	assertion := strings.TrimSpace(r.Header.Get("Cf-Access-Jwt-Assertion"))
+	if email == "" && assertion == "" {
+		return false
+	}
+	if len(s.cfg.AdminAccessEmails) == 0 {
+		return true
+	}
+	_, ok := s.cfg.AdminAccessEmails[email]
+	return ok
 }
 
 func (s *Server) recordFailure(id int64, err error) {
