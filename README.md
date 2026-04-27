@@ -53,6 +53,7 @@ curl -N http://127.0.0.1:18182/v1/chat/completions \
 
 ## API surface
 
+- `GET /admin` lightweight management panel
 - `GET /health`
 - `GET /v1/models`
 - `POST /v1/chat/completions`
@@ -77,6 +78,10 @@ Important defaults:
 
 `CODEBUDDY2API_API_KEY` protects `/v1/*`. `CODEBUDDY2API_ADMIN_KEY`
 protects `/admin/*`; if omitted, the admin API also accepts the client API key.
+
+The `/admin` panel stores the admin key only in browser localStorage and sends it
+as `Authorization: Bearer <key>` to the Admin API. API responses only expose
+`api_key_preview`, never the full CodeBuddy account key.
 
 ## Account fields
 

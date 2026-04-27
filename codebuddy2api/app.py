@@ -5,9 +5,10 @@ import logging
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from . import __version__
+from .admin_ui import ADMIN_HTML
 from .config import Settings
 from .pool import AccountPool, Lease, NoAccountAvailable
 from .schemas import AccountCreate, AccountPatch, ChatCompletionRequest
@@ -32,13 +33,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.upstream = upstream
 
     @app.get("/")
-    async def root() -> dict[str, Any]:
-        return {
-            "service": "codebuddy2api",
-            "version": __version__,
-            "upstream": settings.upstream_url,
-            "models": list(settings.models),
-        }
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/admin", status_code=307)
+
+    @app.get("/admin", response_class=HTMLResponse)
+    async def admin_ui() -> HTMLResponse:
+        return HTMLResponse(ADMIN_HTML)
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
