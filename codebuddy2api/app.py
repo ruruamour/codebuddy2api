@@ -71,6 +71,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=f"invalid request body: {exc}") from exc
 
         request_body = chat_req.model_dump(exclude_none=True)
+        if settings.debug_requests:
+            logger.info("chat.request summary=%s", json.dumps(summarize_chat_request(request_body), ensure_ascii=False))
         if chat_req.model not in settings.models:
             # Keep OpenAI-compatible behavior permissive for mapped clients, but log drift.
             logger.info("requested model is not in advertised list: %s", chat_req.model)
@@ -243,3 +245,40 @@ def openai_error(message: str, error_type: str, status_code: int) -> JSONRespons
         status_code=status_code,
         content={"error": {"message": message[:1000], "type": error_type}},
     )
+
+
+def summarize_chat_request(body: dict[str, Any]) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "model": body.get("model"),
+        "stream": body.get("stream"),
+        "max_tokens": body.get("max_tokens"),
+        "max_completion_tokens": body.get("max_completion_tokens"),
+        "reasoning_effort": body.get("reasoning_effort"),
+        "keys": sorted(body.keys()),
+    }
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        summary["messages"] = [
+            {
+                "role": msg.get("role") if isinstance(msg, dict) else None,
+                "content_type": type(msg.get("content")).__name__ if isinstance(msg, dict) else type(msg).__name__,
+                "content_preview": _content_preview(msg.get("content")) if isinstance(msg, dict) else "",
+            }
+            for msg in messages[-3:]
+        ]
+    return summary
+
+
+def _content_preview(content: Any) -> str:
+    if isinstance(content, str):
+        return content[:120]
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content[:3]:
+            if isinstance(item, dict):
+                text = item.get("text")
+                parts.append(str(text)[:60] if text is not None else str(item.get("type", ""))[:60])
+            else:
+                parts.append(str(item)[:60])
+        return " | ".join(parts)
+    return str(content)[:120]

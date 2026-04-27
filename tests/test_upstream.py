@@ -27,6 +27,7 @@ def test_prepare_payload_strips_openai_reasoning_control():
             request_timeout_seconds=300,
             connect_timeout_seconds=10,
             log_level="INFO",
+            debug_requests=False,
         )
     )
     payload = client.prepare_payload({"model": "glm-5.1", "stream": False, "reasoning_effort": "xhigh"})

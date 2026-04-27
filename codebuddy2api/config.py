@@ -15,6 +15,13 @@ def _env_int(name: str, default: int) -> int:
     return int(raw)
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     host: str
@@ -30,6 +37,7 @@ class Settings:
     request_timeout_seconds: int
     connect_timeout_seconds: int
     log_level: str
+    debug_requests: bool
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -58,6 +66,7 @@ class Settings:
             request_timeout_seconds=_env_int("CODEBUDDY2API_REQUEST_TIMEOUT_SECONDS", 300),
             connect_timeout_seconds=_env_int("CODEBUDDY2API_CONNECT_TIMEOUT_SECONDS", 10),
             log_level=os.getenv("CODEBUDDY2API_LOG_LEVEL", "INFO").upper(),
+            debug_requests=_env_bool("CODEBUDDY2API_DEBUG_REQUESTS", False),
         )
 
     def admin_tokens(self) -> Sequence[str]:
