@@ -27,7 +27,7 @@ func NewServer(cfg Config, store *Store) *Server {
 	return &Server{
 		cfg:      cfg,
 		store:    store,
-		pool:     NewPool(store),
+		pool:     NewPool(store, cfg.Models, cfg.PoolStrategy),
 		upstream: NewUpstreamClient(cfg),
 	}
 }
@@ -88,7 +88,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
 		return
 	}
-	settings, err := s.store.ModelSettings(s.cfg.Models)
+	settings, err := s.store.ModelSettings(s.cfg.Models, s.cfg.PoolStrategy)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
 		return
@@ -324,7 +324,7 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		settings, err := s.store.ModelSettings(s.cfg.Models)
+		settings, err := s.store.ModelSettings(s.cfg.Models, s.cfg.PoolStrategy)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
 			return
@@ -336,7 +336,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 			return
 		}
-		settings, err := s.store.SaveModelSettings(payload, s.cfg.Models)
+		settings, err := s.store.SaveModelSettings(payload, s.cfg.Models, s.cfg.PoolStrategy)
 		if err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
 			return
@@ -348,7 +348,7 @@ func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) applyModelSettings(w http.ResponseWriter, body map[string]any) bool {
-	settings, err := s.store.ModelSettings(s.cfg.Models)
+	settings, err := s.store.ModelSettings(s.cfg.Models, s.cfg.PoolStrategy)
 	if err != nil {
 		writeOpenAIError(w, http.StatusInternalServerError, err.Error(), "settings_error")
 		return false

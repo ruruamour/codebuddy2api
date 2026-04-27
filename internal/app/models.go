@@ -12,10 +12,23 @@ type ModelInfo struct {
 }
 
 type ModelSettings struct {
-	Models       []string    `json:"models"`
-	DefaultModel string      `json:"default_model"`
-	ModelCatalog []ModelInfo `json:"model_catalog,omitempty"`
+	Models         []string           `json:"models"`
+	DefaultModel   string             `json:"default_model"`
+	PoolStrategy   string             `json:"pool_strategy"`
+	ModelCatalog   []ModelInfo        `json:"model_catalog,omitempty"`
+	PoolStrategies []PoolStrategyInfo `json:"pool_strategies,omitempty"`
 }
+
+type PoolStrategyInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+const (
+	PoolStrategyRoundRobin = "round-robin"
+	PoolStrategyFillFirst  = "fill-first"
+)
 
 var DefaultCodeBuddyModelIDs = []string{
 	"glm-5.1",
@@ -42,11 +55,16 @@ var CodeBuddyModelCatalog = []ModelInfo{
 	{ID: "hunyuan-chat", Name: "Hunyuan-Turbos", Credits: "x0.10 credits", MaxInputTokens: 200000, MaxOutputTokens: 8192},
 }
 
+var CodeBuddyPoolStrategies = []PoolStrategyInfo{
+	{ID: PoolStrategyRoundRobin, Name: "轮询", Description: "按优先级分层；同优先级内按权重轮询，适合均摊账号消耗。"},
+	{ID: PoolStrategyFillFirst, Name: "填充", Description: "按优先级、权重、ID 顺序填满前面的账号；适合先吃完一个账号额度再切下一个。"},
+}
+
 func ModelSeed(envModels []string) []string {
 	return normalizeModelIDs(append(append([]string{}, envModels...), DefaultCodeBuddyModelIDs...))
 }
 
-func NormalizeModelSettings(settings ModelSettings, fallback []string) (ModelSettings, error) {
+func NormalizeModelSettings(settings ModelSettings, fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
 	models := normalizeModelIDs(settings.Models)
 	if len(models) == 0 {
 		models = ModelSeed(fallback)
@@ -63,11 +81,45 @@ func NormalizeModelSettings(settings ModelSettings, fallback []string) (ModelSet
 	if defaultModel == "" || !containsString(models, defaultModel) {
 		defaultModel = models[0]
 	}
+	poolStrategy := NormalizePoolStrategy(settings.PoolStrategy, fallbackPoolStrategy)
 	return ModelSettings{
-		Models:       models,
-		DefaultModel: defaultModel,
-		ModelCatalog: CodeBuddyModelCatalog,
+		Models:         models,
+		DefaultModel:   defaultModel,
+		PoolStrategy:   poolStrategy,
+		ModelCatalog:   CodeBuddyModelCatalog,
+		PoolStrategies: CodeBuddyPoolStrategies,
 	}, nil
+}
+
+func NormalizePoolStrategy(value string, fallback string) string {
+	normalizedFallback := normalizePoolStrategyID(fallback)
+	switch normalizedFallback {
+	case PoolStrategyRoundRobin, PoolStrategyFillFirst:
+	default:
+		normalizedFallback = PoolStrategyRoundRobin
+	}
+	switch normalizePoolStrategyID(value) {
+	case PoolStrategyRoundRobin:
+		return PoolStrategyRoundRobin
+	case PoolStrategyFillFirst:
+		return PoolStrategyFillFirst
+	default:
+		return normalizedFallback
+	}
+}
+
+func normalizePoolStrategyID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "_", "-")
+	value = strings.ReplaceAll(value, " ", "-")
+	switch value {
+	case PoolStrategyRoundRobin, "roundrobin", "rr", "轮询":
+		return PoolStrategyRoundRobin
+	case PoolStrategyFillFirst, "fillfirst", "fill", "first", "填充":
+		return PoolStrategyFillFirst
+	default:
+		return value
+	}
 }
 
 func normalizeModelIDs(values []string) []string {

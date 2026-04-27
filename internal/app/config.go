@@ -20,6 +20,7 @@ type Config struct {
 	AdminKey               string
 	UpstreamURL            string
 	Models                 []string
+	PoolStrategy           string
 	CooldownSeconds        int
 	FailureThreshold       int
 	DefaultConcurrency     int
@@ -49,6 +50,7 @@ func LoadConfig() Config {
 		AdminKey:               strings.TrimSpace(os.Getenv("CODEBUDDY2API_ADMIN_KEY")),
 		UpstreamURL:            envString("CODEBUDDY2API_UPSTREAM_URL", "https://copilot.tencent.com/v2/chat/completions"),
 		Models:                 models,
+		PoolStrategy:           NormalizePoolStrategy(os.Getenv("CODEBUDDY2API_POOL_STRATEGY"), PoolStrategyRoundRobin),
 		CooldownSeconds:        envInt("CODEBUDDY2API_COOLDOWN_SECONDS", 300),
 		FailureThreshold:       envInt("CODEBUDDY2API_FAILURE_THRESHOLD", 3),
 		DefaultConcurrency:     envInt("CODEBUDDY2API_DEFAULT_CONCURRENCY", 1),

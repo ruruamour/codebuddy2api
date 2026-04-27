@@ -231,30 +231,31 @@ func (s *Store) ensureColumn(table string, column string, ddl string) error {
 	return err
 }
 
-func (s *Store) ModelSettings(fallback []string) (ModelSettings, error) {
+func (s *Store) ModelSettings(fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
 	var raw string
 	err := s.db.QueryRow("SELECT value FROM settings WHERE key = ?", "model_settings").Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback)}, fallback)
+		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback), PoolStrategy: fallbackPoolStrategy}, fallback, fallbackPoolStrategy)
 	}
 	if err != nil {
 		return ModelSettings{}, err
 	}
 	var settings ModelSettings
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
-		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback)}, fallback)
+		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback), PoolStrategy: fallbackPoolStrategy}, fallback, fallbackPoolStrategy)
 	}
-	return NormalizeModelSettings(settings, fallback)
+	return NormalizeModelSettings(settings, fallback, fallbackPoolStrategy)
 }
 
-func (s *Store) SaveModelSettings(payload ModelSettings, fallback []string) (ModelSettings, error) {
-	settings, err := NormalizeModelSettings(payload, fallback)
+func (s *Store) SaveModelSettings(payload ModelSettings, fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
+	settings, err := NormalizeModelSettings(payload, fallback, fallbackPoolStrategy)
 	if err != nil {
 		return ModelSettings{}, err
 	}
 	raw, err := json.Marshal(ModelSettings{
 		Models:       settings.Models,
 		DefaultModel: settings.DefaultModel,
+		PoolStrategy: settings.PoolStrategy,
 	})
 	if err != nil {
 		return ModelSettings{}, err

@@ -385,10 +385,18 @@
               <div class="label">默认模型</div>
               <input id="defaultModel" placeholder="glm-5.1" />
             </label>
+            <label>
+              <div class="label">账号池调度策略</div>
+              <select id="poolStrategy">
+                <option value="round-robin">轮询：同优先级按权重均摊</option>
+                <option value="fill-first">填充：先用满前面的账号</option>
+              </select>
+            </label>
+            <div id="poolStrategyHelp" class="muted small" style="margin-top: 8px;"></div>
             <div class="actions" style="margin-top: 12px;">
-              <button id="saveModels" type="button">保存模型配置</button>
+              <button id="saveModels" type="button">保存配置</button>
             </div>
-            <div class="muted small" style="margin-top: 10px;">默认模型必须在允许模型列表内；保存后立即影响模型列表和新请求。</div>
+            <div class="muted small" style="margin-top: 10px;">默认模型必须在允许模型列表内；保存后立即影响模型列表、账号池调度和新请求。</div>
           </div>
         </div>
         <h3 style="margin-top: 16px;">CodeBuddy 已知模型</h3>
@@ -481,6 +489,7 @@
     document.getElementById("previewImport").addEventListener("click", previewImport);
     document.getElementById("runImport").addEventListener("click", runImport);
     document.getElementById("saveModels").addEventListener("click", saveModelSettings);
+    document.getElementById("poolStrategy").addEventListener("change", renderPoolStrategyHelp);
     document.getElementById("bulkEnable").addEventListener("click", () => bulkSetEnabled(true));
     document.getElementById("bulkDisable").addEventListener("click", () => bulkSetEnabled(false));
     document.getElementById("bulkProbe").addEventListener("click", bulkProbe);
@@ -638,6 +647,14 @@
       const models = settings.models || [];
       document.getElementById("modelsText").value = models.join("\n");
       document.getElementById("defaultModel").value = settings.default_model || models[0] || "";
+      const strategySelect = document.getElementById("poolStrategy");
+      const strategies = settings.pool_strategies || [
+        { id: "round-robin", name: "轮询", description: "按优先级分层；同优先级内按权重轮询，适合均摊账号消耗。" },
+        { id: "fill-first", name: "填充", description: "按优先级、权重、ID 顺序填满前面的账号；适合先吃完一个账号额度再切下一个。" },
+      ];
+      strategySelect.innerHTML = strategies.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}：${escapeHtml(item.description)}</option>`).join("");
+      strategySelect.value = settings.pool_strategy || "round-robin";
+      renderPoolStrategyHelp();
       const catalog = settings.model_catalog || [];
       const enabled = new Set(models);
       document.getElementById("modelCatalog").innerHTML = catalog.map((model) => `
@@ -653,19 +670,31 @@
       `).join("");
     }
 
+    function renderPoolStrategyHelp() {
+      const settings = state.settings || {};
+      const strategies = settings.pool_strategies || [];
+      const value = document.getElementById("poolStrategy").value || "round-robin";
+      const item = strategies.find((entry) => entry.id === value);
+      const fallback = value === "fill-first"
+        ? "填充模式会一直选择当前最高优先级、最高权重、最小 ID 的可用账号，直到它忙满、到额度自动暂停、过期或失败冷却。"
+        : "轮询模式会在最高优先级账号内按权重轮询，账号忙满后才切到同层或下一层账号。";
+      document.getElementById("poolStrategyHelp").textContent = item ? item.description : fallback;
+    }
+
     async function saveModelSettings() {
       const models = splitModelsText(document.getElementById("modelsText").value);
       if (!models.length) return show("至少保留一个模型。", true);
       const defaultModel = document.getElementById("defaultModel").value.trim() || models[0];
       if (!models.includes(defaultModel)) return show("默认模型必须在允许模型列表内。", true);
+      const poolStrategy = document.getElementById("poolStrategy").value || "round-robin";
       try {
         const settings = await api("/admin/settings", {
           method: "PATCH",
-          body: JSON.stringify({ models, default_model: defaultModel }),
+          body: JSON.stringify({ models, default_model: defaultModel, pool_strategy: poolStrategy }),
         });
         state.settings = settings;
         renderSettings();
-        show("模型配置已保存。");
+        show("配置已保存。");
       } catch (err) {
         show(err.message, true);
       }

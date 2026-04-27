@@ -14,16 +14,20 @@ type Lease struct {
 }
 
 type Pool struct {
-	store    *Store
-	mu       sync.Mutex
-	inFlight map[int64]int
-	cursor   int
+	store                *Store
+	fallbackModels       []string
+	fallbackPoolStrategy string
+	mu                   sync.Mutex
+	inFlight             map[int64]int
+	cursor               int
 }
 
-func NewPool(store *Store) *Pool {
+func NewPool(store *Store, fallbackModels []string, fallbackPoolStrategy string) *Pool {
 	return &Pool{
-		store:    store,
-		inFlight: make(map[int64]int),
+		store:                store,
+		fallbackModels:       append([]string{}, fallbackModels...),
+		fallbackPoolStrategy: NormalizePoolStrategy(fallbackPoolStrategy, PoolStrategyRoundRobin),
+		inFlight:             make(map[int64]int),
 	}
 }
 
@@ -39,6 +43,22 @@ func (p *Pool) Acquire() (Lease, error) {
 		return Lease{}, ErrNoAccountAvailable
 	}
 
+	strategy := p.poolStrategy()
+	if strategy == PoolStrategyFillFirst {
+		return p.acquireFillFirst(candidates)
+	}
+	return p.acquireRoundRobin(candidates)
+}
+
+func (p *Pool) poolStrategy() string {
+	settings, err := p.store.ModelSettings(p.fallbackModels, p.fallbackPoolStrategy)
+	if err != nil {
+		return p.fallbackPoolStrategy
+	}
+	return NormalizePoolStrategy(settings.PoolStrategy, p.fallbackPoolStrategy)
+}
+
+func (p *Pool) acquireRoundRobin(candidates []Account) (Lease, error) {
 	priorities := make(map[int]struct{})
 	for _, account := range candidates {
 		priorities[account.Priority] = struct{}{}
@@ -70,6 +90,27 @@ func (p *Pool) Acquire() (Lease, error) {
 		}
 	}
 
+	return Lease{}, ErrAllAccountsBusy
+}
+
+func (p *Pool) acquireFillFirst(candidates []Account) (Lease, error) {
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		if left.Priority != right.Priority {
+			return left.Priority > right.Priority
+		}
+		if left.Weight != right.Weight {
+			return left.Weight > right.Weight
+		}
+		return left.ID < right.ID
+	})
+	for _, account := range candidates {
+		if p.inFlight[account.ID] >= account.Concurrency {
+			continue
+		}
+		p.inFlight[account.ID]++
+		return Lease{Account: account}, nil
+	}
 	return Lease{}, ErrAllAccountsBusy
 }
 

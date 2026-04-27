@@ -79,6 +79,7 @@ Important defaults:
 - upstream: `https://copilot.tencent.com/v2/chat/completions`
 - listen: `127.0.0.1:18182`
 - default model list: `glm-5.1`, `minimax-m2.7`, `kimi-k2.6`
+- default account pool strategy: `round-robin`
 - database: `./data/codebuddy2api.sqlite3`
 
 `CODEBUDDY2API_API_KEY` protects `/v1/*`. `CODEBUDDY2API_ADMIN_KEY`
@@ -125,6 +126,14 @@ upstream `usage.credit` tail packet as the persisted accounting source.
 
 ## Scheduler behavior
 
+- pool strategy is configurable from the admin settings page or
+  `CODEBUDDY2API_POOL_STRATEGY`.
+- `round-robin`: higher priority tiers are tried first; inside the same tier,
+  accounts are selected by weighted round-robin.
+- `fill-first`: higher priority tiers are tried first; inside the same tier,
+  higher weight and lower ID accounts are filled first. If no quota/expiry is
+  configured, the first eligible account may keep receiving all sequential
+  traffic.
 - 401/403: account is disabled.
 - 429/5xx: account enters cooldown.
 - repeated failures: account enters cooldown after `CODEBUDDY2API_FAILURE_THRESHOLD`.
