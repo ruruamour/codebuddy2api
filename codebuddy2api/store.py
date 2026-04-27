@@ -158,6 +158,11 @@ class AccountStore:
             )
             return cur.rowcount > 0
 
+    def delete_account(self, account_id: int) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
+            return cur.rowcount > 0
+
     def get_account(self, account_id: int) -> Account | None:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()

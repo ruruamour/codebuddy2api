@@ -62,6 +62,7 @@ curl -N http://127.0.0.1:18182/v1/chat/completions \
 - `PATCH /admin/accounts/{id}`
 - `POST /admin/accounts/{id}/enable`
 - `POST /admin/accounts/{id}/disable`
+- `DELETE /admin/accounts/{id}`
 - `POST /admin/accounts/{id}/probe`
 - `GET /admin/stats`
 
@@ -82,6 +83,10 @@ protects `/admin/*`; if omitted, the admin API also accepts the client API key.
 The `/admin` panel stores the admin key only in browser localStorage and sends it
 as `Authorization: Bearer <key>` to the Admin API. API responses only expose
 `api_key_preview`, never the full CodeBuddy account key.
+
+The management panel supports Chinese UI, account/key add and edit, key
+rotation, enable/disable, delete, probe, cooldown reset, filtering, bulk
+enable/disable/probe/reset, and line-based bulk import.
 
 ## Account fields
 

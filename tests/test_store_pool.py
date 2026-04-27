@@ -48,3 +48,12 @@ def test_store_records_credit(tmp_path):
     stats = store.stats()
     assert stats["total_requests"] == 1
     assert stats["total_credit"] == 0.25
+
+
+def test_store_deletes_account(tmp_path):
+    store = AccountStore(str(tmp_path / "test.sqlite3"))
+    account_id = store.add_account(AccountCreate(name="a", api_key="ck_test_1"))
+
+    assert store.delete_account(account_id) is True
+    assert store.get_account(account_id) is None
+    assert store.delete_account(account_id) is False

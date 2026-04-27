@@ -146,6 +146,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="account not found")
         return {"ok": True}
 
+    @app.delete("/admin/accounts/{account_id}", dependencies=[Depends(require_admin_auth)])
+    async def admin_delete_account(request: Request, account_id: int) -> dict[str, Any]:
+        if not request.app.state.store.delete_account(account_id):
+            raise HTTPException(status_code=404, detail="account not found")
+        return {"ok": True}
+
     @app.post("/admin/accounts/{account_id}/probe", dependencies=[Depends(require_admin_auth)])
     async def admin_probe_account(request: Request, account_id: int) -> dict[str, Any]:
         account = request.app.state.store.get_account(account_id)

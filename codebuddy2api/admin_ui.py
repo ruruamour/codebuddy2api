@@ -2,186 +2,352 @@ from __future__ import annotations
 
 
 ADMIN_HTML = r"""<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CodeBuddy2API Admin</title>
+  <title>CodeBuddy2API 管理面板</title>
   <style>
     :root {
-      color-scheme: light dark;
-      --bg: #0f172a;
-      --panel: #111827;
-      --panel-2: #1f2937;
+      color-scheme: dark;
+      --bg: #07111f;
+      --panel: #0f172a;
+      --panel-2: #111827;
+      --panel-3: #172033;
       --text: #e5e7eb;
-      --muted: #9ca3af;
-      --line: #374151;
+      --muted: #94a3b8;
+      --line: #334155;
       --ok: #22c55e;
       --bad: #ef4444;
       --warn: #f59e0b;
       --accent: #38bdf8;
+      --purple: #a78bfa;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
+      font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(56,189,248,.18), transparent 34%),
+        radial-gradient(circle at 85% 10%, rgba(167,139,250,.15), transparent 30%),
+        var(--bg);
       color: var(--text);
     }
     header {
-      padding: 22px 24px;
-      border-bottom: 1px solid var(--line);
-      background: linear-gradient(135deg, #111827 0%, #0f172a 55%, #082f49 100%);
+      padding: 24px 28px;
+      border-bottom: 1px solid rgba(148,163,184,.18);
+      background: rgba(15,23,42,.78);
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 5;
     }
-    h1 { margin: 0; font-size: 22px; }
-    h2 { margin: 0 0 12px; font-size: 16px; }
-    main { padding: 20px 24px 40px; max-width: 1500px; margin: 0 auto; }
-    section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 12px;
+    h1 { margin: 0; font-size: 24px; letter-spacing: .02em; }
+    h2 { margin: 0 0 14px; font-size: 17px; }
+    h3 { margin: 0 0 10px; font-size: 15px; }
+    main { padding: 20px 24px 42px; max-width: 1560px; margin: 0 auto; }
+    section, .panel {
+      background: rgba(15,23,42,.92);
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 16px;
       padding: 16px;
       margin-bottom: 16px;
-      box-shadow: 0 12px 28px rgba(0,0,0,.18);
+      box-shadow: 0 16px 42px rgba(0,0,0,.25);
     }
+    .subhead { color: var(--muted); margin-top: 4px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .tab {
+      width: auto;
+      padding: 9px 14px;
+      background: #101c30;
+      border-color: var(--line);
+    }
+    .tab.active { background: #0369a1; border-color: #0ea5e9; }
     .grid { display: grid; gap: 12px; }
-    .grid.stats { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
-    .grid.form { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); align-items: end; }
+    .grid.stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+    .grid.form { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; }
+    .grid.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
     .card {
-      background: var(--panel-2);
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 12px;
+      background: linear-gradient(180deg, rgba(30,41,59,.88), rgba(15,23,42,.88));
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 13px;
+      padding: 13px;
     }
-    .label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
-    .value { font-size: 20px; font-weight: 700; margin-top: 3px; }
+    .label { color: var(--muted); font-size: 12px; letter-spacing: .02em; }
+    .value { font-size: 22px; font-weight: 800; margin-top: 3px; }
     input, textarea, select, button {
       width: 100%;
-      border-radius: 8px;
+      border-radius: 10px;
       border: 1px solid var(--line);
-      background: #0b1220;
+      background: #07111f;
       color: var(--text);
       padding: 9px 10px;
       font: inherit;
+      outline: none;
     }
-    textarea { min-height: 68px; resize: vertical; }
+    textarea { min-height: 74px; resize: vertical; }
+    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.12); }
     button {
       cursor: pointer;
       background: #0ea5e9;
       border-color: #0284c7;
       color: white;
-      font-weight: 700;
+      font-weight: 750;
     }
     button.secondary { background: #334155; border-color: #475569; }
     button.ok { background: #16a34a; border-color: #15803d; }
     button.bad { background: #dc2626; border-color: #b91c1c; }
     button.warn { background: #d97706; border-color: #b45309; }
+    button.purple { background: #7c3aed; border-color: #6d28d9; }
+    button.ghost { background: transparent; border-color: var(--line); color: var(--text); }
     button:disabled { opacity: .55; cursor: not-allowed; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; }
-    .actions button { width: auto; min-width: 90px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .actions button { width: auto; min-width: 76px; }
     .muted { color: var(--muted); }
+    .small { font-size: 12px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .nowrap { white-space: nowrap; }
+    .hidden { display: none !important; }
+    .split { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
+    .split > label, .split > div.grow { flex: 1; min-width: 240px; }
     .status {
       display: inline-flex;
       align-items: center;
       gap: 6px;
       border-radius: 999px;
-      padding: 2px 8px;
-      background: #0b1220;
+      padding: 3px 9px;
+      background: #07111f;
       border: 1px solid var(--line);
       font-size: 12px;
       white-space: nowrap;
     }
     .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted); }
-    .active .dot { background: var(--ok); }
-    .disabled .dot { background: var(--bad); }
-    .cooldown .dot { background: var(--warn); }
-    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
-    table { width: 100%; border-collapse: collapse; min-width: 1180px; }
-    th, td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
-    th { position: sticky; top: 0; background: #172033; text-align: left; z-index: 1; }
+    .status.active .dot { background: var(--ok); }
+    .status.disabled .dot { background: var(--bad); }
+    .status.cooldown .dot { background: var(--warn); }
+    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+    .toolbar .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .toolbar input, .toolbar select { width: auto; min-width: 180px; }
+    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(7,17,31,.7); }
+    table { width: 100%; border-collapse: collapse; min-width: 1320px; }
+    th, td { padding: 10px; border-bottom: 1px solid rgba(148,163,184,.16); vertical-align: top; }
+    th { position: sticky; top: 0; background: #142033; text-align: left; z-index: 1; color: #cbd5e1; }
     tr:last-child td { border-bottom: 0; }
-    td input { min-width: 80px; }
+    tbody tr:hover { background: rgba(56,189,248,.05); }
+    td input { min-width: 78px; }
     td textarea { min-width: 170px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .toast {
       position: fixed;
       right: 18px;
       bottom: 18px;
-      max-width: 560px;
+      max-width: 620px;
       padding: 12px 14px;
-      border-radius: 10px;
+      border-radius: 12px;
       border: 1px solid var(--line);
       background: #020617;
-      box-shadow: 0 12px 28px rgba(0,0,0,.35);
+      box-shadow: 0 16px 42px rgba(0,0,0,.42);
       display: none;
       white-space: pre-wrap;
-      z-index: 10;
+      z-index: 20;
     }
     .toast.show { display: block; }
-    .split { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
-    .split > label { flex: 1; min-width: 260px; }
-    .small { font-size: 12px; }
-    .nowrap { white-space: nowrap; }
+    .danger-zone { border-color: rgba(239,68,68,.35); }
+    .help {
+      border-left: 3px solid var(--accent);
+      padding: 10px 12px;
+      background: rgba(56,189,248,.08);
+      border-radius: 10px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      background: #07111f;
+      border-radius: 999px;
+      padding: 2px 8px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    @media (max-width: 760px) {
+      main { padding: 14px; }
+      header { padding: 18px; }
+      .actions button { width: 100%; }
+      .toolbar input, .toolbar select { width: 100%; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>CodeBuddy2API Admin</h1>
-    <div class="muted">Manage account pool, health, cooldown, and upstream usage. Full keys are never rendered.</div>
+    <h1>CodeBuddy2API 管理面板</h1>
+    <div class="subhead">账号池 / ck Key / 代理 / 并发 / 健康状态 / 上游额度消耗</div>
   </header>
+
   <main>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview" type="button">总览</button>
+      <button class="tab" data-tab="accounts" type="button">账号与 Key</button>
+      <button class="tab" data-tab="import" type="button">批量导入</button>
+      <button class="tab" data-tab="settings" type="button">接入设置</button>
+    </nav>
+
     <section>
-      <h2>Admin key</h2>
+      <h2>管理口令</h2>
       <div class="split">
         <label>
-          <div class="label">Authorization Bearer</div>
-          <input id="adminKey" type="password" autocomplete="off" placeholder="CODEBUDDY2API_ADMIN_KEY" />
+          <div class="label">Admin Key</div>
+          <input id="adminKey" type="password" autocomplete="off" placeholder="填写 CODEBUDDY2API_ADMIN_KEY" />
         </label>
-        <button id="saveKey" class="secondary" type="button">Save locally</button>
-        <button id="refresh" type="button">Refresh</button>
+        <button id="saveKey" class="secondary" type="button">保存到本浏览器</button>
+        <button id="clearKey" class="ghost" type="button">清除</button>
+        <button id="refresh" type="button">刷新数据</button>
       </div>
-      <div class="muted small">Stored only in this browser localStorage and sent to Admin API as Authorization: Bearer.</div>
+      <div class="muted small">只保存在当前浏览器 localStorage；请求 Admin API 时作为 Authorization: Bearer 发送。服务端不会把完整 ck Key 返回到页面。</div>
     </section>
 
-    <section>
-      <h2>Stats</h2>
-      <div id="stats" class="grid stats"></div>
-    </section>
+    <div id="tab-overview">
+      <section>
+        <div class="toolbar">
+          <h2>运行总览</h2>
+          <span id="lastRefresh" class="pill">尚未刷新</span>
+        </div>
+        <div id="stats" class="grid stats"></div>
+      </section>
+      <section>
+        <h2>最近异常账号</h2>
+        <div id="problemAccounts" class="grid two"></div>
+      </section>
+    </div>
 
-    <section>
-      <h2>Add account</h2>
-      <form id="addForm" class="grid form">
-        <label><div class="label">Name</div><input name="name" value="CodeBuddy account" required /></label>
-        <label><div class="label">API key</div><input name="api_key" type="password" placeholder="ck_..." required /></label>
-        <label><div class="label">Enabled</div><select name="enabled"><option value="true">true</option><option value="false">false</option></select></label>
-        <label><div class="label">Priority</div><input name="priority" type="number" value="100" /></label>
-        <label><div class="label">Weight</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
-        <label><div class="label">Concurrency</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
-        <label><div class="label">Proxy URL</div><input name="proxy_url" placeholder="http://... or socks5://..." /></label>
-        <label><div class="label">Notes</div><input name="notes" placeholder="optional" /></label>
-        <label style="grid-column: 1 / -1;"><div class="label">Header profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8"}'></textarea></label>
-        <button type="submit">Add account</button>
-      </form>
-    </section>
+    <div id="tab-accounts" class="hidden">
+      <section>
+        <h2>新增账号 / Key</h2>
+        <form id="addForm" class="grid form">
+          <label><div class="label">账号名称</div><input name="name" value="CodeBuddy 账号" required /></label>
+          <label><div class="label">ck Key</div><input name="api_key" type="password" placeholder="ck_..." required /></label>
+          <label><div class="label">是否启用</div><select name="enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+          <label><div class="label">优先级</div><input name="priority" type="number" value="100" /></label>
+          <label><div class="label">权重</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
+          <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
+          <label><div class="label">绑定代理</div><input name="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
+          <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
+          <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8","machine_id":"..."}'></textarea></label>
+          <button type="submit">添加账号</button>
+        </form>
+      </section>
 
-    <section>
-      <h2>Accounts</h2>
-      <div id="accounts"></div>
-    </section>
+      <section>
+        <div class="toolbar">
+          <h2>账号池</h2>
+          <div class="filters">
+            <input id="search" placeholder="搜索名称 / key 预览 / 备注 / 错误" />
+            <select id="statusFilter">
+              <option value="all">全部状态</option>
+              <option value="active">仅 active</option>
+              <option value="cooldown">仅 cooldown</option>
+              <option value="disabled">仅 disabled</option>
+            </select>
+            <button id="refreshAccounts" class="secondary" type="button">刷新</button>
+          </div>
+        </div>
+        <div class="actions" style="margin-bottom: 12px;">
+          <button id="bulkEnable" class="ok" type="button">批量启用</button>
+          <button id="bulkDisable" class="bad" type="button">批量停用</button>
+          <button id="bulkProbe" class="secondary" type="button">批量探测</button>
+          <button id="bulkReset" class="warn" type="button">批量清冷却</button>
+        </div>
+        <div id="accounts"></div>
+      </section>
+    </div>
+
+    <div id="tab-import" class="hidden">
+      <section>
+        <h2>批量导入 ck Key</h2>
+        <div class="help small">
+          每行一种格式：<span class="mono">ck_xxx</span> 或 <span class="mono">账号名,ck_xxx</span> 或 <span class="mono">账号名\tck_xxx</span>。
+          默认会按下方参数创建账号；完整 Key 只写入服务端 SQLite，不会再从接口返回。
+        </div>
+        <div class="grid form" style="margin-top: 12px;">
+          <label><div class="label">默认优先级</div><input id="importPriority" type="number" value="100" /></label>
+          <label><div class="label">默认权重</div><input id="importWeight" type="number" min="1" max="100" value="1" /></label>
+          <label><div class="label">默认并发</div><input id="importConcurrency" type="number" min="1" max="100" value="1" /></label>
+          <label><div class="label">默认代理</div><input id="importProxy" placeholder="可空" /></label>
+          <label><div class="label">默认备注</div><input id="importNotes" placeholder="批次说明，可空" /></label>
+          <label><div class="label">导入后状态</div><select id="importEnabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+        </div>
+        <label style="display:block; margin-top: 12px;">
+          <div class="label">批量内容</div>
+          <textarea id="bulkKeys" style="min-height: 220px;" placeholder="ck_xxx&#10;codebuddy-02,ck_xxx&#10;codebuddy-03&#9;ck_xxx"></textarea>
+        </label>
+        <div class="actions" style="margin-top: 12px;">
+          <button id="previewImport" class="secondary" type="button">预览解析</button>
+          <button id="runImport" type="button">开始导入</button>
+        </div>
+        <pre id="importResult" class="panel mono small" style="white-space: pre-wrap; display: none;"></pre>
+      </section>
+    </div>
+
+    <div id="tab-settings" class="hidden">
+      <section>
+        <h2>接入说明</h2>
+        <div class="grid two">
+          <div class="card">
+            <h3>管理 Key</h3>
+            <p class="muted">Admin Key / 对外 API Key 仍建议保留在服务器 env 中管理，不在网页里直接改，避免误操作把自己锁出管理面。</p>
+            <p class="muted">这个页面管理的是 CodeBuddy 上游账号 ck Key、并发、代理、健康状态和消耗统计。</p>
+          </div>
+          <div class="card">
+            <h3>sub2api 接入</h3>
+            <p class="muted mono">base_url = http://127.0.0.1:18182</p>
+            <p class="muted mono">model = glm-5.1</p>
+            <p class="muted">sub2api 继续按站内 glm-5.1 价格计费；这里记录上游真实 usage.credit 方便对账。</p>
+          </div>
+        </div>
+      </section>
+      <section class="danger-zone">
+        <h2>危险操作说明</h2>
+        <p class="muted">删除账号会从本服务 SQLite 删除该 ck Key 记录及其累计统计。建议先停用观察，再删除。</p>
+        <p class="muted">轮换 Key：在账号表格的“新 ck Key”输入框填新 key 后保存；留空表示不修改原 key。</p>
+      </section>
+    </div>
   </main>
   <div id="toast" class="toast"></div>
 
   <script>
+    const state = { accounts: [], stats: null };
     const keyInput = document.getElementById("adminKey");
     const toast = document.getElementById("toast");
     keyInput.value = localStorage.getItem("codebuddy2api.adminKey") || "";
 
+    document.querySelectorAll(".tab").forEach((button) => {
+      button.addEventListener("click", () => switchTab(button.dataset.tab));
+    });
     document.getElementById("saveKey").addEventListener("click", () => {
       localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-      show("Admin key saved locally.");
+      show("管理口令已保存到当前浏览器。");
+    });
+    document.getElementById("clearKey").addEventListener("click", () => {
+      localStorage.removeItem("codebuddy2api.adminKey");
+      keyInput.value = "";
+      show("已清除本地保存的管理口令。");
     });
     document.getElementById("refresh").addEventListener("click", refreshAll);
+    document.getElementById("refreshAccounts").addEventListener("click", refreshAll);
     document.getElementById("addForm").addEventListener("submit", addAccount);
+    document.getElementById("search").addEventListener("input", renderAccounts);
+    document.getElementById("statusFilter").addEventListener("change", renderAccounts);
+    document.getElementById("previewImport").addEventListener("click", previewImport);
+    document.getElementById("runImport").addEventListener("click", runImport);
+    document.getElementById("bulkEnable").addEventListener("click", () => bulkSetEnabled(true));
+    document.getElementById("bulkDisable").addEventListener("click", () => bulkSetEnabled(false));
+    document.getElementById("bulkProbe").addEventListener("click", bulkProbe);
+    document.getElementById("bulkReset").addEventListener("click", bulkReset);
+
+    function switchTab(name) {
+      document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === name));
+      for (const item of ["overview", "accounts", "import", "settings"]) {
+        document.getElementById(`tab-${item}`).classList.toggle("hidden", item !== name);
+      }
+    }
 
     function authHeaders() {
       const token = keyInput.value.trim();
@@ -200,7 +366,7 @@ ADMIN_HTML = r"""<!doctype html>
       try { body = text ? JSON.parse(text) : null; } catch (_) { body = text; }
       if (!res.ok) {
         const detail = body && body.detail ? body.detail : body && body.error ? body.error.message : text;
-        throw new Error(`${res.status} ${res.statusText}: ${detail || "request failed"}`);
+        throw new Error(`${res.status} ${res.statusText}: ${detail || "请求失败"}`);
       }
       return body;
     }
@@ -216,7 +382,7 @@ ADMIN_HTML = r"""<!doctype html>
       toast.style.borderColor = isError ? "#ef4444" : "#22c55e";
       toast.classList.add("show");
       clearTimeout(window.__toastTimer);
-      window.__toastTimer = setTimeout(() => toast.classList.remove("show"), 4500);
+      window.__toastTimer = setTimeout(() => toast.classList.remove("show"), 5200);
     }
 
     function fmt(value) {
@@ -227,17 +393,21 @@ ADMIN_HTML = r"""<!doctype html>
 
     function time(ts) {
       if (!ts) return "-";
-      return new Date(ts * 1000).toLocaleString();
+      return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
     }
 
     function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, ch => ({
+      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         "&": "&amp;",
         "<": "&lt;",
         ">": "&gt;",
         '"': "&quot;",
         "'": "&#39;",
       }[ch]));
+    }
+
+    function checkedIds() {
+      return Array.from(document.querySelectorAll(".account-check:checked")).map((item) => Number(item.value));
     }
 
     async function refreshAll() {
@@ -247,33 +417,86 @@ ADMIN_HTML = r"""<!doctype html>
           api("/admin/stats"),
           api("/admin/accounts"),
         ]);
-        renderStats(stats);
-        renderAccounts(accounts.accounts || []);
+        state.stats = stats;
+        state.accounts = accounts.accounts || [];
+        renderStats();
+        renderProblemAccounts();
+        renderAccounts();
+        document.getElementById("lastRefresh").textContent = `最后刷新：${new Date().toLocaleString("zh-CN", { hour12: false })}`;
       } catch (err) {
         show(err.message, true);
       }
     }
 
-    function renderStats(stats) {
+    function renderStats() {
+      const stats = state.stats || {};
       const items = [
-        ["accounts", stats.accounts],
-        ["enabled", stats.enabled_accounts],
-        ["requests", stats.total_requests],
-        ["success", stats.total_success],
-        ["failures", stats.total_failures],
-        ["credit", stats.total_credit],
-        ["prompt tokens", stats.prompt_tokens],
-        ["completion tokens", stats.completion_tokens],
-        ["total tokens", stats.total_tokens],
+        ["账号总数", stats.accounts],
+        ["启用账号", stats.enabled_accounts],
+        ["总请求", stats.total_requests],
+        ["成功", stats.total_success],
+        ["失败", stats.total_failures],
+        ["上游 credit", stats.total_credit],
+        ["输入 tokens", stats.prompt_tokens],
+        ["输出 tokens", stats.completion_tokens],
+        ["总 tokens", stats.total_tokens],
       ];
       document.getElementById("stats").innerHTML = items.map(([label, value]) => `
         <div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(fmt(value))}</div></div>
       `).join("");
     }
 
-    function renderAccounts(accounts) {
+    function renderProblemAccounts() {
+      const accounts = state.accounts
+        .filter((a) => !a.enabled || a.status !== "active" || a.last_error)
+        .slice(0, 8);
+      const box = document.getElementById("problemAccounts");
       if (!accounts.length) {
-        document.getElementById("accounts").innerHTML = '<div class="muted">No accounts yet.</div>';
+        box.innerHTML = '<div class="muted">暂无异常账号。</div>';
+        return;
+      }
+      box.innerHTML = accounts.map((a) => `
+        <div class="card">
+          <div class="actions" style="justify-content: space-between;">
+            <strong>${escapeHtml(a.name)}</strong>
+            ${statusBadge(a)}
+          </div>
+          <div class="small muted mono">${escapeHtml(a.api_key_preview || "-")}</div>
+          <div class="small">失败：${escapeHtml(fmt(a.total_failures))}，连续失败：${escapeHtml(fmt(a.consecutive_failures))}</div>
+          <div class="small muted">${escapeHtml(a.last_error || "无错误摘要")}</div>
+        </div>
+      `).join("");
+    }
+
+    function statusValue(a) {
+      return a.enabled ? a.status : "disabled";
+    }
+
+    function statusText(status) {
+      return { active: "可用", cooldown: "冷却", disabled: "停用" }[status] || status;
+    }
+
+    function statusBadge(a) {
+      const status = statusValue(a);
+      return `<span class="status ${escapeHtml(status)}"><span class="dot"></span>${escapeHtml(statusText(status))}</span>`;
+    }
+
+    function filteredAccounts() {
+      const query = document.getElementById("search").value.trim().toLowerCase();
+      const filter = document.getElementById("statusFilter").value;
+      return state.accounts.filter((a) => {
+        const status = statusValue(a);
+        if (filter !== "all" && status !== filter) return false;
+        if (!query) return true;
+        const haystack = [a.id, a.name, a.api_key_preview, a.notes, a.last_error, a.proxy_url].join(" ").toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    function renderAccounts() {
+      const accounts = filteredAccounts();
+      if (!accounts.length) {
+        document.getElementById("accounts").innerHTML = '<div class="muted">没有匹配的账号。</div>';
         return;
       }
       document.getElementById("accounts").innerHTML = `
@@ -281,47 +504,59 @@ ADMIN_HTML = r"""<!doctype html>
           <table>
             <thead>
               <tr>
-                <th>ID</th><th>Status</th><th>Name</th><th>Key</th><th>Priority</th><th>Weight</th><th>Concurrency</th><th>In-flight</th>
-                <th>Usage</th><th>Failures</th><th>Proxy</th><th>Header profile</th><th>Notes</th><th>Last error</th><th>Actions</th>
+                <th><input id="checkAll" type="checkbox" /></th>
+                <th>ID</th><th>状态</th><th>账号 / Key</th><th>调度</th><th>代理</th>
+                <th>请求头 Profile</th><th>备注</th><th>消耗 / 健康</th><th>最近错误</th><th>操作</th>
               </tr>
             </thead>
-            <tbody>
-              ${accounts.map(accountRow).join("")}
-            </tbody>
+            <tbody>${accounts.map(accountRow).join("")}</tbody>
           </table>
         </div>`;
+      document.getElementById("checkAll").addEventListener("change", (event) => {
+        document.querySelectorAll(".account-check").forEach((item) => { item.checked = event.target.checked; });
+      });
     }
 
     function accountRow(a) {
-      const status = a.enabled ? a.status : "disabled";
       const profile = JSON.stringify(a.header_profile || {}, null, 0);
       return `
         <tr data-id="${a.id}">
+          <td><input class="account-check" type="checkbox" value="${a.id}" /></td>
           <td class="mono nowrap">${a.id}</td>
-          <td><span class="status ${escapeHtml(status)}"><span class="dot"></span>${escapeHtml(status)}</span><div class="muted small">cooldown: ${escapeHtml(time(a.cooldown_until))}</div></td>
-          <td><input data-field="name" value="${escapeHtml(a.name)}" /></td>
-          <td><div class="mono nowrap">${escapeHtml(a.api_key_preview)}</div><input data-field="api_key" type="password" placeholder="new key only" /></td>
-          <td><input data-field="priority" type="number" value="${escapeHtml(a.priority)}" /></td>
-          <td><input data-field="weight" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" /></td>
-          <td><input data-field="concurrency" type="number" min="1" max="100" value="${escapeHtml(a.concurrency)}" /></td>
-          <td class="mono">${escapeHtml(fmt(a.in_flight))}</td>
-          <td class="small">
-            credit: <span class="mono">${escapeHtml(fmt(a.total_credit))}</span><br>
-            req/s/f: <span class="mono">${escapeHtml(fmt(a.total_requests))}/${escapeHtml(fmt(a.total_success))}/${escapeHtml(fmt(a.total_failures))}</span><br>
-            tokens: <span class="mono">${escapeHtml(fmt(a.total_tokens))}</span><br>
-            ok: ${escapeHtml(time(a.last_success_at))}<br>
-            fail: ${escapeHtml(time(a.last_failure_at))}
+          <td>
+            ${statusBadge(a)}
+            <div class="muted small">冷却至：${escapeHtml(time(a.cooldown_until))}</div>
+            <div class="muted small">并发中：<span class="mono">${escapeHtml(fmt(a.in_flight))}</span></div>
           </td>
-          <td><input data-field="proxy_url" value="${escapeHtml(a.proxy_url || "")}" /></td>
+          <td>
+            <label><div class="label">账号名</div><input data-field="name" value="${escapeHtml(a.name)}" /></label>
+            <div class="small muted">当前 Key：<span class="mono">${escapeHtml(a.api_key_preview || "-")}</span></div>
+            <label><div class="label">新 ck Key（留空不改）</div><input data-field="api_key" type="password" placeholder="ck_..." /></label>
+          </td>
+          <td>
+            <label><div class="label">优先级</div><input data-field="priority" type="number" value="${escapeHtml(a.priority)}" /></label>
+            <label><div class="label">权重</div><input data-field="weight" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" /></label>
+            <label><div class="label">并发</div><input data-field="concurrency" type="number" min="1" max="100" value="${escapeHtml(a.concurrency)}" /></label>
+          </td>
+          <td><input data-field="proxy_url" value="${escapeHtml(a.proxy_url || "")}" placeholder="可空" /></td>
           <td><textarea data-field="header_profile">${escapeHtml(profile)}</textarea></td>
           <td><textarea data-field="notes">${escapeHtml(a.notes || "")}</textarea></td>
+          <td class="small">
+            credit：<span class="mono">${escapeHtml(fmt(a.total_credit))}</span><br>
+            请求/成功/失败：<span class="mono">${escapeHtml(fmt(a.total_requests))}/${escapeHtml(fmt(a.total_success))}/${escapeHtml(fmt(a.total_failures))}</span><br>
+            tokens：<span class="mono">${escapeHtml(fmt(a.total_tokens))}</span><br>
+            最近成功：${escapeHtml(time(a.last_success_at))}<br>
+            最近失败：${escapeHtml(time(a.last_failure_at))}<br>
+            连续失败：<span class="mono">${escapeHtml(fmt(a.consecutive_failures))}</span>
+          </td>
           <td class="small">${escapeHtml(a.last_error || "-")}</td>
           <td>
             <div class="actions">
-              <button type="button" onclick="saveAccount(${a.id})">Save</button>
-              <button type="button" class="${a.enabled ? "bad" : "ok"}" onclick="setEnabled(${a.id}, ${a.enabled ? "false" : "true"})">${a.enabled ? "Disable" : "Enable"}</button>
-              <button type="button" class="secondary" onclick="probe(${a.id})">Probe</button>
-              <button type="button" class="warn" onclick="resetFailures(${a.id})">Reset</button>
+              <button type="button" onclick="saveAccount(${a.id})">保存</button>
+              <button type="button" class="${a.enabled ? "bad" : "ok"}" onclick="setEnabled(${a.id}, ${a.enabled ? "false" : "true"})">${a.enabled ? "停用" : "启用"}</button>
+              <button type="button" class="secondary" onclick="probe(${a.id})">探测</button>
+              <button type="button" class="warn" onclick="resetFailures(${a.id})">清冷却</button>
+              <button type="button" class="bad" onclick="deleteAccount(${a.id}, '${escapeHtml(a.name).replace(/'/g, "\\'")}')">删除</button>
             </div>
           </td>
         </tr>`;
@@ -344,7 +579,7 @@ ADMIN_HTML = r"""<!doctype html>
         };
         await api("/admin/accounts", { method: "POST", body: JSON.stringify(payload) });
         event.currentTarget.reset();
-        show("Account added.");
+        show("账号已添加。");
         await refreshAll();
       } catch (err) {
         show(err.message, true);
@@ -365,7 +600,7 @@ ADMIN_HTML = r"""<!doctype html>
       try {
         payload.header_profile = parseOptionalJson(row.querySelector('[data-field="header_profile"]').value, {});
         await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-        show(`Account ${id} saved.`);
+        show(`账号 ${id} 已保存。`);
         await refreshAll();
       } catch (err) {
         show(err.message, true);
@@ -375,7 +610,7 @@ ADMIN_HTML = r"""<!doctype html>
     async function setEnabled(id, enabled) {
       try {
         await api(`/admin/accounts/${id}/${enabled ? "enable" : "disable"}`, { method: "POST", body: "{}" });
-        show(`Account ${id} ${enabled ? "enabled" : "disabled"}.`);
+        show(`账号 ${id} 已${enabled ? "启用" : "停用"}。`);
         await refreshAll();
       } catch (err) {
         show(err.message, true);
@@ -385,7 +620,7 @@ ADMIN_HTML = r"""<!doctype html>
     async function probe(id) {
       try {
         const result = await api(`/admin/accounts/${id}/probe`, { method: "POST", body: "{}" });
-        show(`Probe ${id} OK:\n${JSON.stringify(result, null, 2)}`);
+        show(`账号 ${id} 探测成功：\n${JSON.stringify(result, null, 2)}`);
         await refreshAll();
       } catch (err) {
         show(err.message, true);
@@ -395,11 +630,112 @@ ADMIN_HTML = r"""<!doctype html>
     async function resetFailures(id) {
       try {
         await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ reset_failures: true }) });
-        show(`Account ${id} failures reset.`);
+        show(`账号 ${id} 已清除失败计数和冷却。`);
         await refreshAll();
       } catch (err) {
         show(err.message, true);
       }
+    }
+
+    async function deleteAccount(id, name) {
+      if (!confirm(`确认删除账号 ${id}（${name}）？此操作会删除该账号累计统计。`)) return;
+      try {
+        await api(`/admin/accounts/${id}`, { method: "DELETE" });
+        show(`账号 ${id} 已删除。`);
+        await refreshAll();
+      } catch (err) {
+        show(err.message, true);
+      }
+    }
+
+    function parseBulkKeys() {
+      const text = document.getElementById("bulkKeys").value;
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      return lines.map((line, idx) => {
+        let name = `CodeBuddy-${String(idx + 1).padStart(3, "0")}`;
+        let key = line;
+        const tabParts = line.split(/\t+/).map((part) => part.trim()).filter(Boolean);
+        const commaParts = line.split(",").map((part) => part.trim()).filter(Boolean);
+        if (tabParts.length >= 2) {
+          name = tabParts[0];
+          key = tabParts[1];
+        } else if (commaParts.length >= 2) {
+          name = commaParts[0];
+          key = commaParts[1];
+        }
+        return { name, api_key: key };
+      }).filter((item) => item.api_key);
+    }
+
+    function previewImport() {
+      const items = parseBulkKeys();
+      const result = document.getElementById("importResult");
+      result.style.display = "block";
+      result.textContent = items.length
+        ? items.map((item, idx) => `${idx + 1}. ${item.name}  ${item.api_key.slice(0, 6)}...${item.api_key.slice(-4)}`).join("\n")
+        : "没有解析到可导入的 key。";
+    }
+
+    async function runImport() {
+      const items = parseBulkKeys();
+      if (!items.length) {
+        show("没有可导入的 key。", true);
+        return;
+      }
+      const defaults = {
+        enabled: document.getElementById("importEnabled").value === "true",
+        priority: Number(document.getElementById("importPriority").value || 100),
+        weight: Number(document.getElementById("importWeight").value || 1),
+        concurrency: Number(document.getElementById("importConcurrency").value || 1),
+        proxy_url: document.getElementById("importProxy").value.trim() || null,
+        notes: document.getElementById("importNotes").value.trim() || null,
+        header_profile: {},
+      };
+      const logs = [];
+      for (const item of items) {
+        try {
+          const created = await api("/admin/accounts", { method: "POST", body: JSON.stringify({ ...defaults, ...item }) });
+          logs.push(`OK  ${item.name} -> id=${created.id}`);
+        } catch (err) {
+          logs.push(`ERR ${item.name}: ${err.message}`);
+        }
+      }
+      const result = document.getElementById("importResult");
+      result.style.display = "block";
+      result.textContent = logs.join("\n");
+      await refreshAll();
+    }
+
+    async function bulkSetEnabled(enabled) {
+      const ids = checkedIds();
+      if (!ids.length) return show("请先勾选账号。", true);
+      for (const id of ids) await setEnabled(id, enabled);
+    }
+
+    async function bulkProbe() {
+      const ids = checkedIds();
+      if (!ids.length) return show("请先勾选账号。", true);
+      const logs = [];
+      for (const id of ids) {
+        try {
+          await api(`/admin/accounts/${id}/probe`, { method: "POST", body: "{}" });
+          logs.push(`OK  ${id}`);
+        } catch (err) {
+          logs.push(`ERR ${id}: ${err.message}`);
+        }
+      }
+      show(logs.join("\n"));
+      await refreshAll();
+    }
+
+    async function bulkReset() {
+      const ids = checkedIds();
+      if (!ids.length) return show("请先勾选账号。", true);
+      for (const id of ids) {
+        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ reset_failures: true }) });
+      }
+      show(`已处理 ${ids.length} 个账号。`);
+      await refreshAll();
     }
 
     refreshAll();
