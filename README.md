@@ -1,81 +1,122 @@
-# CodeBuddy CN -> OpenAI Compatible API Proxy
+# CodeBuddy2API
 
-将腾讯云 CodeBuddy CN 的聊天 API 封装为标准 OpenAI 兼容格式，可接入任何支持 OpenAI API 的客户端。
+OpenAI-compatible proxy for Tencent CodeBuddy Key accounts.
 
-## 快速开始
+This project is based on the MIT-licensed `Jevil961/codebuddy-openai-proxy`
+protocol shape, but is rewritten around the NuoAPI production needs:
+
+- `ck_...` API key credentials
+- account pool with per-account concurrency
+- proxy/header profile per account
+- health/cooldown/failover state
+- upstream `usage.credit` accounting
+- OpenAI-compatible `/v1/chat/completions` and `/v1/models`
+
+## Quick start
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env
 python main.py
 ```
 
-## 配置
-
-### 1. OAuth2 登录获取 Token
-
-浏览器访问：`http://localhost:8000/auth/start`
-
-复制返回的 `auth_url` 在浏览器中打开，登录你的 CodeBuddy 账号并授权。
-
-### 2. 轮询获取 Token
-
-浏览器访问返回的 `poll_url`，看到 `"status": "success"` 即表示 Token 已保存。
-
-### 3. 开始使用
+Add a CodeBuddy account:
 
 ```bash
-# 非流式
-curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"deepseek-v3\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}]}"
-
-# 流式
-curl http://localhost:8000/v1/chat/completions -H "Content-Type: application/json" -d "{\"model\":\"deepseek-v3\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\"}],\"stream\":true}"
+curl -X POST http://127.0.0.1:18182/admin/accounts \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CODEBUDDY2API_ADMIN_KEY" \
+  -d '{
+    "name": "codebuddy-1",
+    "api_key": "ck_xxx",
+    "concurrency": 1,
+    "weight": 1,
+    "priority": 100
+  }'
 ```
 
-### Python SDK
+Call through OpenAI-compatible chat completions:
 
-```python
-from openai import OpenAI
-
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="any")
-resp = client.chat.completions.create(
-    model="deepseek-v3",
-    messages=[{"role": "user", "content": "你好"}],
-)
-print(resp.choices[0].message.content)
+```bash
+curl -N http://127.0.0.1:18182/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CODEBUDDY2API_API_KEY" \
+  -d '{
+    "model": "glm-5.1",
+    "messages": [{"role": "user", "content": "只回复OK"}],
+    "stream": true,
+    "max_tokens": 8
+  }'
 ```
 
-## 可用模型
+## API surface
 
-| 模型 | 状态 |
-|------|------|
-| `deepseek-v3` | ✅ 可用 |
-| `claude-4.0` | ✅ 可用 |
-- 注：CN支持什么模型就能用什么模型！
+- `GET /health`
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- `GET /admin/accounts`
+- `POST /admin/accounts`
+- `PATCH /admin/accounts/{id}`
+- `POST /admin/accounts/{id}/enable`
+- `POST /admin/accounts/{id}/disable`
+- `POST /admin/accounts/{id}/probe`
+- `GET /admin/stats`
 
+## Config
 
-## API 端点
+See `.env.example`.
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/auth/start` | GET | 启动 OAuth2 登录 |
-| `/auth/poll?auth_state=xxx` | GET | 轮询获取 Token |
-| `/auth/manual` | POST | 手动设置 Bearer Token |
-| `/auth/status` | GET | 查看凭证状态 |
-| `/v1/chat/completions` | POST | 聊天补全（OpenAI 兼容） |
-| `/v1/models` | GET | 模型列表 |
+Important defaults:
 
-## 环境变量
+- upstream: `https://copilot.tencent.com/v2/chat/completions`
+- listen: `127.0.0.1:18182`
+- model list: `glm-5.1`
+- database: `./data/codebuddy2api.sqlite3`
 
-```env
-PORT=8000              # 服务端口
-API_PASSWORD=           # 代理访问密码（可选）
+`CODEBUDDY2API_API_KEY` protects `/v1/*`. `CODEBUDDY2API_ADMIN_KEY`
+protects `/admin/*`; if omitted, the admin API also accepts the client API key.
+
+## Account fields
+
+- `api_key`: CodeBuddy `ck_...` key. Stored in SQLite; API responses only show a preview.
+- `enabled`: whether the scheduler can use this account.
+- `priority`: higher priority accounts are tried first.
+- `weight`: weighted round-robin inside the same priority tier.
+- `concurrency`: max in-flight requests for this account in the current process.
+- `proxy_url`: optional `http://`, `https://`, or `socks5://` proxy URL for this account.
+- `header_profile`: optional request header profile:
+
+```json
+{
+  "user_agent": "CLI/1.0.8 CodeBuddy/1.0.8",
+  "machine_id": "stable-machine-id",
+  "agent_intent": "CodeCompletion",
+  "env_id": "production",
+  "extra_headers": {
+    "X-Custom": "value"
+  }
+}
 ```
 
-## 兼容客户端
+## Scheduler behavior
 
-支持所有 OpenAI 兼容客户端：ChatGPT-Next-Web、LobeChat、Cherry Studio、Cursor 等。
+- 401/403: account is disabled.
+- 429/5xx: account enters cooldown.
+- repeated failures: account enters cooldown after `CODEBUDDY2API_FAILURE_THRESHOLD`.
+- cooldown expiry: account is eligible again automatically.
+- success: clears consecutive failures and cooldown.
 
-## 免责声明
+## sub2api integration
 
-本项目仅供学习交流使用，使用请遵守腾讯云 CodeBuddy 相关服务条款。
-开发者不对因使用本项目导致的账号封禁、API 限制等后果承担责任。
+Configure a normal OpenAI-compatible APIKey upstream:
+
+```text
+base_url = http://127.0.0.1:18182/v1
+api_key  = CODEBUDDY2API_API_KEY
+model    = glm-5.1
+```
+
+Keep sub2api billing on its existing `glm-5.1` pricing. CodeBuddy2API records
+the upstream `usage.credit` separately for reconciliation.
