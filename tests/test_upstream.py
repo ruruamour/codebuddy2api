@@ -8,6 +8,32 @@ def test_parse_sse_data_line():
     assert parse_sse_data_line("") is None
 
 
+def test_prepare_payload_strips_openai_reasoning_control():
+    from codebuddy2api.config import Settings
+    from codebuddy2api.upstream import CodeBuddyClient
+
+    client = CodeBuddyClient(
+        Settings(
+            host="127.0.0.1",
+            port=18182,
+            db_path=":memory:",
+            api_key="",
+            admin_key="",
+            upstream_url="https://example.invalid/v2/chat/completions",
+            models=("glm-5.1",),
+            cooldown_seconds=300,
+            failure_threshold=3,
+            default_concurrency=1,
+            request_timeout_seconds=300,
+            connect_timeout_seconds=10,
+            log_level="INFO",
+        )
+    )
+    payload = client.prepare_payload({"model": "glm-5.1", "stream": False, "reasoning_effort": "xhigh"})
+    assert payload["stream"] is True
+    assert "reasoning_effort" not in payload
+
+
 def test_normalize_chunk_collects_usage_and_content():
     state = StreamState(response_id="chatcmpl-test", model="glm-5.1")
     chunk = {

@@ -40,6 +40,9 @@ class CodeBuddyClient:
         payload = dict(request_body)
         payload["stream"] = True
         payload.setdefault("model", "glm-5.1")
+        # CodeBuddy GLM treats OpenAI reasoning controls as a prompt to emit
+        # hidden analysis; strip them for chat-completions compatibility.
+        payload.pop("reasoning_effort", None)
         return payload
 
     def build_headers(self, account: Account) -> dict[str, str]:
