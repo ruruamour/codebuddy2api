@@ -22,6 +22,15 @@ def test_normalize_chunk_collects_usage_and_content():
     assert state.usage["credit"] == 0.01
 
 
+def test_normalize_chunk_promotes_reasoning_when_content_is_empty():
+    state = StreamState(response_id="chatcmpl-test", model="glm-5.1")
+    chunk = {"choices": [{"delta": {"content": "", "reasoning_content": "OK"}}]}
+    normalize_chunk_for_client(chunk, state)
+    assert chunk["choices"][0]["delta"]["content"] == "OK"
+    assert state.reasoning_parts == ["OK"]
+    assert build_non_stream_response(state)["choices"][0]["message"]["content"] == "OK"
+
+
 def test_build_non_stream_response():
     state = StreamState(response_id="chatcmpl-test", model="glm-5.1")
     state.content_parts.extend(["O", "K"])

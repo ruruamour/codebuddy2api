@@ -18,6 +18,7 @@ class StreamState:
     response_id: str
     model: str
     content_parts: list[str] = field(default_factory=list)
+    reasoning_parts: list[str] = field(default_factory=list)
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     finish_reason: str | None = None
     usage: dict[str, Any] | None = None
@@ -162,6 +163,13 @@ def normalize_chunk_for_client(chunk: dict[str, Any], state: StreamState) -> Non
         content = delta.get("content")
         if isinstance(content, str):
             state.content_parts.append(content)
+        reasoning_content = delta.get("reasoning_content")
+        if isinstance(reasoning_content, str) and reasoning_content:
+            state.reasoning_parts.append(reasoning_content)
+            if not content:
+                # Some compatible upstreams emit all visible text in reasoning_content.
+                # Surface it as content so standard OpenAI clients do not receive blanks.
+                delta["content"] = reasoning_content
         _merge_tool_calls(state.tool_calls, delta.get("tool_calls"))
 
 
@@ -191,7 +199,7 @@ def _merge_tool_calls(target: list[dict[str, Any]], incoming: Any) -> None:
 def build_non_stream_response(state: StreamState) -> dict[str, Any]:
     message: dict[str, Any] = {
         "role": "assistant",
-        "content": "".join(state.content_parts),
+        "content": "".join(state.content_parts) or "".join(state.reasoning_parts),
     }
     if state.tool_calls:
         message["tool_calls"] = state.tool_calls
