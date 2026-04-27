@@ -81,6 +81,7 @@
       font: inherit;
       outline: none;
     }
+    input[type="checkbox"] { width: auto; }
     textarea { min-height: 74px; resize: vertical; }
     input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.12); }
     button {
@@ -125,13 +126,72 @@
     .toolbar .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .toolbar input, .toolbar select { width: auto; min-width: 180px; }
     .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(7,17,31,.7); }
-    table { width: 100%; border-collapse: collapse; min-width: 1320px; }
+    table { width: 100%; border-collapse: collapse; min-width: 980px; }
     th, td { padding: 10px; border-bottom: 1px solid rgba(148,163,184,.16); vertical-align: top; }
     th { position: sticky; top: 0; background: #142033; text-align: left; z-index: 1; color: #cbd5e1; }
     tr:last-child td { border-bottom: 0; }
     tbody tr:hover { background: rgba(56,189,248,.05); }
     td input { min-width: 78px; }
     td textarea { min-width: 170px; }
+    .row-title { font-weight: 800; color: #dbeafe; }
+    .row-sub { margin-top: 2px; color: var(--muted); font-size: 12px; }
+    .compact-table th, .compact-table td { vertical-align: middle; }
+    .compact-table .actions { gap: 6px; }
+    .compact-table .actions button { min-width: 56px; padding: 6px 10px; border-radius: 999px; }
+    .metric-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .metric-line .pill { color: #cbd5e1; }
+    .credit-bar {
+      height: 7px;
+      min-width: 120px;
+      margin-top: 5px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(148,163,184,.16);
+    }
+    .credit-bar > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #22c55e, #38bdf8);
+    }
+    .credit-bar.warn > span { background: linear-gradient(90deg, #f59e0b, #ef4444); }
+    details.advanced {
+      grid-column: 1 / -1;
+      border: 1px solid rgba(148,163,184,.18);
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(7,17,31,.52);
+    }
+    details.advanced > summary { cursor: pointer; color: #cbd5e1; font-weight: 700; }
+    details.advanced .grid { margin-top: 12px; }
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      padding: 24px;
+      background: rgba(2,6,23,.72);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-card {
+      width: min(1080px, 100%);
+      max-height: min(880px, 92vh);
+      overflow: auto;
+      background: #0f172a;
+      border: 1px solid rgba(148,163,184,.28);
+      border-radius: 18px;
+      box-shadow: 0 30px 90px rgba(0,0,0,.58);
+      padding: 18px;
+    }
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+      margin-bottom: 14px;
+    }
+    .modal-head button { width: auto; min-width: 70px; }
     .toast {
       position: fixed;
       right: 18px;
@@ -216,22 +276,35 @@
 
     <div id="tab-accounts" class="hidden">
       <section>
-        <h2>新增账号 / Key</h2>
+        <div class="toolbar">
+          <h2>Credits 概览</h2>
+          <span class="pill">基于上游响应 usage.credit 累计；设置额度上限后可计算剩余</span>
+        </div>
+        <div id="accountCredits" class="grid stats"></div>
+      </section>
+
+      <section>
+        <h2>快速新增账号</h2>
         <form id="addForm" class="grid form">
           <label><div class="label">账号名称</div><input name="name" value="CodeBuddy 账号" required /></label>
           <label><div class="label">ck Key</div><input name="api_key" type="password" placeholder="ck_..." required /></label>
           <label><div class="label">是否启用</div><select name="enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+          <label><div class="label">额度上限 credit</div><input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
+          <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
+          <button type="submit">添加账号</button>
+          <details class="advanced">
+            <summary>高级配置</summary>
+            <div class="grid form">
           <label><div class="label">优先级</div><input name="priority" type="number" value="100" /></label>
           <label><div class="label">权重</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
           <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
           <label><div class="label">绑定代理</div><input name="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
-          <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
-          <label><div class="label">额度上限 credit</div><input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
           <label><div class="label">到额度自动暂停</div><select name="quota_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
           <label><div class="label">过期时间</div><input name="expires_at" type="datetime-local" /></label>
           <label><div class="label">过期自动暂停</div><select name="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
           <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8","machine_id":"..."}'></textarea></label>
-          <button type="submit">添加账号</button>
+            </div>
+          </details>
         </form>
       </section>
 
@@ -318,9 +391,40 @@
     </div>
   </main>
   <div id="toast" class="toast"></div>
+  <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editTitle">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2 id="editTitle">编辑账号</h2>
+          <div id="editSubtitle" class="muted small mono"></div>
+        </div>
+        <button id="editClose" class="ghost" type="button">关闭</button>
+      </div>
+      <form id="editForm" class="grid form">
+        <label><div class="label">账号名称</div><input data-edit-field="name" required /></label>
+        <label><div class="label">新 ck Key（留空不改）</div><input data-edit-field="api_key" type="password" placeholder="ck_..." /></label>
+        <label><div class="label">优先级</div><input data-edit-field="priority" type="number" /></label>
+        <label><div class="label">权重</div><input data-edit-field="weight" type="number" min="1" max="100" /></label>
+        <label><div class="label">并发上限</div><input data-edit-field="concurrency" type="number" min="1" max="100" /></label>
+        <label><div class="label">额度上限 credit</div><input data-edit-field="quota_limit" type="number" min="0" step="0.000001" /></label>
+        <label><div class="label">到额度自动暂停</div><select data-edit-field="quota_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
+        <label><div class="label">过期时间</div><input data-edit-field="expires_at" type="datetime-local" /></label>
+        <label><div class="label">过期自动暂停</div><select data-edit-field="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
+        <label><div class="label">绑定代理</div><input data-edit-field="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
+        <label style="grid-column: 1 / -1;"><div class="label">备注</div><textarea data-edit-field="notes"></textarea></label>
+        <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea data-edit-field="header_profile" style="min-height: 120px;"></textarea></label>
+        <div class="actions" style="grid-column: 1 / -1;">
+          <button id="editSave" type="submit">保存</button>
+          <button id="editReset" class="warn" type="button">清冷却</button>
+          <button id="editProbe" class="secondary" type="button">探测</button>
+          <button id="editDelete" class="bad" type="button">删除</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <script>
-    const state = { accounts: [], stats: null };
+    const state = { accounts: [], stats: null, editingId: null };
     const keyInput = document.getElementById("adminKey");
     const toast = document.getElementById("toast");
     keyInput.value = localStorage.getItem("codebuddy2api.adminKey") || "";
@@ -348,6 +452,21 @@
     document.getElementById("bulkDisable").addEventListener("click", () => bulkSetEnabled(false));
     document.getElementById("bulkProbe").addEventListener("click", bulkProbe);
     document.getElementById("bulkReset").addEventListener("click", bulkReset);
+    document.getElementById("editClose").addEventListener("click", closeEdit);
+    document.getElementById("editModal").addEventListener("click", (event) => {
+      if (event.target.id === "editModal") closeEdit();
+    });
+    document.getElementById("editForm").addEventListener("submit", saveEdit);
+    document.getElementById("editReset").addEventListener("click", () => {
+      if (state.editingId) resetFailures(state.editingId);
+    });
+    document.getElementById("editProbe").addEventListener("click", () => {
+      if (state.editingId) probe(state.editingId);
+    });
+    document.getElementById("editDelete").addEventListener("click", () => {
+      const account = state.accounts.find((item) => item.id === state.editingId);
+      if (account) deleteAccount(account.id, account.name);
+    });
 
     function switchTab(name) {
       document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === name));
@@ -427,6 +546,11 @@
       }[ch]));
     }
 
+    function truncateText(value, max) {
+      const text = String(value ?? "");
+      return text.length > max ? `${text.slice(0, max)}...` : text;
+    }
+
     function checkedIds() {
       return Array.from(document.querySelectorAll(".account-check:checked")).map((item) => Number(item.value));
     }
@@ -441,21 +565,44 @@
         state.stats = stats;
         state.accounts = accounts.accounts || [];
         renderStats();
+        renderCredits();
         renderProblemAccounts();
         renderAccounts();
         document.getElementById("lastRefresh").textContent = `最后刷新：${new Date().toLocaleString("zh-CN", { hour12: false })}`;
       } catch (err) {
         document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key 后点击“刷新数据”。</div>';
         document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key。</div>';
+        document.getElementById("accountCredits").innerHTML = '<div class="help small">Credits 概览未加载。</div>';
         show(err.message, true);
       }
     }
 
+    function creditSummary() {
+      const limited = state.accounts.filter((a) => Number(a.quota_limit || 0) > 0);
+      const totalQuota = limited.reduce((sum, a) => sum + Number(a.quota_limit || 0), 0);
+      const usedLimited = limited.reduce((sum, a) => sum + Number(a.total_credit || 0), 0);
+      const remaining = limited.reduce((sum, a) => sum + Math.max(Number(a.quota_limit || 0) - Number(a.total_credit || 0), 0), 0);
+      const usedAll = state.accounts.reduce((sum, a) => sum + Number(a.total_credit || 0), 0);
+      const exhausted = limited.filter((a) => a.quota_exceeded).length;
+      return {
+        totalQuota,
+        usedLimited,
+        remaining,
+        usedAll,
+        limitedAccounts: limited.length,
+        unlimitedAccounts: state.accounts.length - limited.length,
+        exhausted,
+      };
+    }
+
     function renderStats() {
       const stats = state.stats || {};
+      const credits = creditSummary();
       const items = [
         ["账号总数", stats.accounts],
         ["启用账号", stats.enabled_accounts],
+        ["配置总额度", credits.totalQuota],
+        ["配置剩余额度", credits.remaining],
         ["总请求", stats.total_requests],
         ["成功", stats.total_success],
         ["失败", stats.total_failures],
@@ -465,6 +612,22 @@
         ["总 tokens", stats.total_tokens],
       ];
       document.getElementById("stats").innerHTML = items.map(([label, value]) => `
+        <div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(fmt(value))}</div></div>
+      `).join("");
+    }
+
+    function renderCredits() {
+      const credits = creditSummary();
+      const items = [
+        ["配置总额度", credits.totalQuota],
+        ["已用额度（有限额账号）", credits.usedLimited],
+        ["配置剩余额度", credits.remaining],
+        ["全部已用 credit", credits.usedAll],
+        ["设置额度账号", credits.limitedAccounts],
+        ["不限额账号", credits.unlimitedAccounts],
+        ["已超额账号", credits.exhausted],
+      ];
+      document.getElementById("accountCredits").innerHTML = items.map(([label, value]) => `
         <div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(fmt(value))}</div></div>
       `).join("");
     }
@@ -533,12 +696,11 @@
       }
       document.getElementById("accounts").innerHTML = `
         <div class="table-wrap">
-          <table>
+          <table class="compact-table">
             <thead>
               <tr>
                 <th><input id="checkAll" type="checkbox" /></th>
-                <th>ID</th><th>状态</th><th>账号 / Key</th><th>调度</th><th>配额 / 过期</th><th>代理</th>
-                <th>请求头 Profile</th><th>备注</th><th>消耗 / 健康</th><th>最近错误</th><th>操作</th>
+                <th>ID</th><th>名称</th><th>状态</th><th>Credits</th><th>优先级</th><th>权重</th><th>并发</th><th>请求</th><th>最近状态</th><th>操作</th>
               </tr>
             </thead>
             <tbody>${accounts.map(accountRow).join("")}</tbody>
@@ -550,55 +712,51 @@
     }
 
     function accountRow(a) {
-      const profile = JSON.stringify(a.header_profile || {}, null, 0);
+      const limit = Number(a.quota_limit || 0);
+      const used = Number(a.total_credit || 0);
+      const remaining = a.quota_remaining === null || a.quota_remaining === undefined ? null : Number(a.quota_remaining || 0);
+      const percent = limit > 0 ? Math.min(100, Math.max(0, used / limit * 100)) : 0;
+      const barClass = limit > 0 && percent >= 85 ? "credit-bar warn" : "credit-bar";
+      const creditText = limit > 0
+        ? `${fmt(used)} / ${fmt(remaining)} 剩 / ${fmt(limit)}`
+        : `${fmt(used)} / 不限`;
+      const lastLine = a.last_error
+        ? `<div class="row-sub" title="${escapeHtml(a.last_error)}">错误：${escapeHtml(truncateText(a.last_error, 48))}</div>`
+        : `<div class="row-sub">最近成功：${escapeHtml(time(a.last_success_at))}</div>`;
       return `
         <tr data-id="${a.id}">
           <td><input class="account-check" type="checkbox" value="${a.id}" /></td>
           <td class="mono nowrap">${a.id}</td>
           <td>
+            <div class="row-title">${escapeHtml(a.name)}</div>
+            <div class="row-sub mono">${escapeHtml(a.api_key_preview || "-")}</div>
+            ${a.notes ? `<div class="row-sub">${escapeHtml(truncateText(a.notes, 54))}</div>` : ""}
+          </td>
+          <td>
             ${statusBadge(a)}
-            <div class="muted small">冷却至：${escapeHtml(time(a.cooldown_until))}</div>
-            <div class="muted small">并发中：<span class="mono">${escapeHtml(fmt(a.in_flight))}</span></div>
-          </td>
-          <td>
-            <label><div class="label">账号名</div><input data-field="name" value="${escapeHtml(a.name)}" /></label>
-            <div class="small muted">当前 Key：<span class="mono">${escapeHtml(a.api_key_preview || "-")}</span></div>
-            <label><div class="label">新 ck Key（留空不改）</div><input data-field="api_key" type="password" placeholder="ck_..." /></label>
-          </td>
-          <td>
-            <label><div class="label">优先级</div><input data-field="priority" type="number" value="${escapeHtml(a.priority)}" /></label>
-            <label><div class="label">权重</div><input data-field="weight" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" /></label>
-            <label><div class="label">并发</div><input data-field="concurrency" type="number" min="1" max="100" value="${escapeHtml(a.concurrency)}" /></label>
+            ${a.quota_exceeded ? '<div class="row-sub" style="color:#fca5a5;">额度已超</div>' : ""}
+            ${a.cooldown_until ? `<div class="row-sub">冷却至：${escapeHtml(time(a.cooldown_until))}</div>` : ""}
           </td>
           <td class="small">
-            <label><div class="label">额度上限 credit</div><input data-field="quota_limit" type="number" min="0" step="0.000001" value="${escapeHtml(a.quota_limit || 0)}" /></label>
-            <label><div class="label">到额度自动暂停</div><select data-field="quota_auto_disable"><option value="false" ${a.quota_auto_disable ? "" : "selected"}>关闭</option><option value="true" ${a.quota_auto_disable ? "selected" : ""}>开启</option></select></label>
-            <div>已用 / 剩余：<span class="mono">${escapeHtml(fmt(a.total_credit))} / ${escapeHtml(fmt(a.quota_remaining))}</span></div>
-            <div>是否超额：${a.quota_exceeded ? "是" : "否"}</div>
-            <label><div class="label">过期时间</div><input data-field="expires_at" type="datetime-local" value="${escapeHtml(tsToLocalInput(a.expires_at))}" /></label>
-            <label><div class="label">过期自动暂停</div><select data-field="expire_auto_disable"><option value="false" ${a.expire_auto_disable ? "" : "selected"}>关闭</option><option value="true" ${a.expire_auto_disable ? "selected" : ""}>开启</option></select></label>
-            <div>暂停原因：${escapeHtml(disableReasonText(a.last_disable_reason))}</div>
+            <div class="mono">${escapeHtml(creditText)}</div>
+            ${limit > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
           </td>
-          <td><input data-field="proxy_url" value="${escapeHtml(a.proxy_url || "")}" placeholder="可空" /></td>
-          <td><textarea data-field="header_profile">${escapeHtml(profile)}</textarea></td>
-          <td><textarea data-field="notes">${escapeHtml(a.notes || "")}</textarea></td>
+          <td class="mono">${escapeHtml(fmt(a.priority))}</td>
+          <td class="mono">${escapeHtml(fmt(a.weight))}</td>
+          <td>
+            <span class="mono">${escapeHtml(fmt(a.in_flight))}/${escapeHtml(fmt(a.concurrency))}</span>
+          </td>
+          <td class="small mono">${escapeHtml(fmt(a.total_requests))}/${escapeHtml(fmt(a.total_success))}/${escapeHtml(fmt(a.total_failures))}</td>
           <td class="small">
-            credit：<span class="mono">${escapeHtml(fmt(a.total_credit))}</span><br>
-            请求/成功/失败：<span class="mono">${escapeHtml(fmt(a.total_requests))}/${escapeHtml(fmt(a.total_success))}/${escapeHtml(fmt(a.total_failures))}</span><br>
-            tokens：<span class="mono">${escapeHtml(fmt(a.total_tokens))}</span><br>
-            最近成功：${escapeHtml(time(a.last_success_at))}<br>
-            最近失败：${escapeHtml(time(a.last_failure_at))}<br>
-            连续失败：<span class="mono">${escapeHtml(fmt(a.consecutive_failures))}</span><br>
-            最近错误码：<span class="mono">${escapeHtml(fmt(a.last_error_status))}</span>
+            ${lastLine}
+            <div class="row-sub">最近失败：${escapeHtml(time(a.last_failure_at))}</div>
+            <div class="row-sub">错误码：<span class="mono">${escapeHtml(fmt(a.last_error_status))}</span></div>
           </td>
-          <td class="small">${escapeHtml(a.last_error || "-")}</td>
           <td>
             <div class="actions">
-              <button type="button" onclick="saveAccount(${a.id})">保存</button>
+              <button type="button" onclick="openEdit(${a.id})">编辑</button>
               <button type="button" class="${a.enabled ? "bad" : "ok"}" onclick="setEnabled(${a.id}, ${a.enabled ? "false" : "true"})">${a.enabled ? "停用" : "启用"}</button>
               <button type="button" class="secondary" onclick="probe(${a.id})">探测</button>
-              <button type="button" class="warn" onclick="resetFailures(${a.id})">清冷却</button>
-              <button type="button" class="bad" onclick="deleteAccount(${a.id}, '${escapeHtml(a.name).replace(/'/g, "\\'")}')">删除</button>
             </div>
           </td>
         </tr>`;
@@ -632,24 +790,56 @@
       }
     }
 
-    async function saveAccount(id) {
-      const row = document.querySelector(`tr[data-id="${id}"]`);
+    function editField(field) {
+      return document.querySelector(`[data-edit-field="${field}"]`);
+    }
+
+    function openEdit(id) {
+      const account = state.accounts.find((item) => item.id === id);
+      if (!account) return show(`账号 ${id} 不存在。`, true);
+      state.editingId = id;
+      document.getElementById("editTitle").textContent = `编辑账号 #${id}`;
+      document.getElementById("editSubtitle").textContent = `${account.api_key_preview || "-"} · 已用 credit ${fmt(account.total_credit)}`;
+      editField("name").value = account.name || "";
+      editField("api_key").value = "";
+      editField("priority").value = account.priority ?? 100;
+      editField("weight").value = account.weight ?? 1;
+      editField("concurrency").value = account.concurrency ?? 1;
+      editField("quota_limit").value = account.quota_limit || 0;
+      editField("quota_auto_disable").value = account.quota_auto_disable ? "true" : "false";
+      editField("expires_at").value = tsToLocalInput(account.expires_at);
+      editField("expire_auto_disable").value = account.expire_auto_disable ? "true" : "false";
+      editField("proxy_url").value = account.proxy_url || "";
+      editField("notes").value = account.notes || "";
+      editField("header_profile").value = JSON.stringify(account.header_profile || {}, null, 2);
+      document.getElementById("editModal").classList.remove("hidden");
+    }
+
+    function closeEdit() {
+      state.editingId = null;
+      document.getElementById("editModal").classList.add("hidden");
+    }
+
+    async function saveEdit(event) {
+      event.preventDefault();
+      const id = state.editingId;
+      if (!id) return;
       const payload = {};
       for (const field of ["name", "priority", "weight", "concurrency", "quota_limit", "proxy_url", "notes", "api_key"]) {
-        const input = row.querySelector(`[data-field="${field}"]`);
-        let value = input.value;
+        let value = editField(field).value;
         if (field === "api_key" && !value.trim()) continue;
         if (["priority", "weight", "concurrency", "quota_limit"].includes(field)) value = Number(value || 0);
         if (["proxy_url", "notes"].includes(field)) value = value.trim() ? value : null;
         payload[field] = value;
       }
       try {
-        payload.quota_auto_disable = row.querySelector('[data-field="quota_auto_disable"]').value === "true";
-        payload.expires_at = localInputToTs(row.querySelector('[data-field="expires_at"]').value);
-        payload.expire_auto_disable = row.querySelector('[data-field="expire_auto_disable"]').value === "true";
-        payload.header_profile = parseOptionalJson(row.querySelector('[data-field="header_profile"]').value, {});
+        payload.quota_auto_disable = editField("quota_auto_disable").value === "true";
+        payload.expires_at = localInputToTs(editField("expires_at").value);
+        payload.expire_auto_disable = editField("expire_auto_disable").value === "true";
+        payload.header_profile = parseOptionalJson(editField("header_profile").value, {});
         await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
         show(`账号 ${id} 已保存。`);
+        closeEdit();
         await refreshAll();
       } catch (err) {
         show(err.message, true);
@@ -691,6 +881,7 @@
       try {
         await api(`/admin/accounts/${id}`, { method: "DELETE" });
         show(`账号 ${id} 已删除。`);
+        closeEdit();
         await refreshAll();
       } catch (err) {
         show(err.message, true);
