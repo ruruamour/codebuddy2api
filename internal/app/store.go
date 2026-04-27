@@ -177,6 +177,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_sched ON accounts(enabled, status, priority, id);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `)
 	if err != nil {
 		return err
@@ -224,6 +229,45 @@ func (s *Store) ensureColumn(table string, column string, ddl string) error {
 	}
 	_, err = s.db.Exec(ddl)
 	return err
+}
+
+func (s *Store) ModelSettings(fallback []string) (ModelSettings, error) {
+	var raw string
+	err := s.db.QueryRow("SELECT value FROM settings WHERE key = ?", "model_settings").Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback)}, fallback)
+	}
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	var settings ModelSettings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback)}, fallback)
+	}
+	return NormalizeModelSettings(settings, fallback)
+}
+
+func (s *Store) SaveModelSettings(payload ModelSettings, fallback []string) (ModelSettings, error) {
+	settings, err := NormalizeModelSettings(payload, fallback)
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	raw, err := json.Marshal(ModelSettings{
+		Models:       settings.Models,
+		DefaultModel: settings.DefaultModel,
+	})
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	_, err = s.db.Exec(`
+INSERT INTO settings (key, value, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+		"model_settings", string(raw), now())
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	return settings, nil
 }
 
 func (s *Store) AddAccount(payload AccountCreate) (int64, error) {

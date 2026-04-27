@@ -42,6 +42,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/accounts", s.withAdminAuth(s.handleAdminAccounts))
 	mux.HandleFunc("/admin/accounts/", s.withAdminAuth(s.handleAdminAccountByID))
 	mux.HandleFunc("/admin/stats", s.withAdminAuth(s.handleAdminStats))
+	mux.HandleFunc("/admin/settings", s.withAdminAuth(s.handleAdminSettings))
 	return requestLogger(mux)
 }
 
@@ -87,8 +88,13 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
 		return
 	}
-	data := make([]map[string]any, 0, len(s.cfg.Models))
-	for _, model := range s.cfg.Models {
+	settings, err := s.store.ModelSettings(s.cfg.Models)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		return
+	}
+	data := make([]map[string]any, 0, len(settings.Models))
+	for _, model := range settings.Models {
 		data = append(data, map[string]any{
 			"id":       model,
 			"object":   "model",
@@ -111,6 +117,9 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := body["messages"].([]any); !ok {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": "invalid request body: messages is required"})
+		return
+	}
+	if ok := s.applyModelSettings(w, body); !ok {
 		return
 	}
 	if s.cfg.DebugRequests {
@@ -310,6 +319,51 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, stats)
+}
+
+func (s *Server) handleAdminSettings(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		settings, err := s.store.ModelSettings(s.cfg.Models)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
+	case http.MethodPatch:
+		var payload ModelSettings
+		if err := decodeJSON(r, &payload); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+			return
+		}
+		settings, err := s.store.SaveModelSettings(payload, s.cfg.Models)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, settings)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+	}
+}
+
+func (s *Server) applyModelSettings(w http.ResponseWriter, body map[string]any) bool {
+	settings, err := s.store.ModelSettings(s.cfg.Models)
+	if err != nil {
+		writeOpenAIError(w, http.StatusInternalServerError, err.Error(), "settings_error")
+		return false
+	}
+	model := strings.TrimSpace(stringValue(body["model"], ""))
+	if model == "" {
+		body["model"] = settings.DefaultModel
+		return true
+	}
+	if !containsString(settings.Models, model) {
+		writeOpenAIError(w, http.StatusBadRequest, "model is not enabled: "+model, "invalid_model")
+		return false
+	}
+	body["model"] = model
+	return true
 }
 
 func (s *Server) withClientAuth(next http.HandlerFunc) http.HandlerFunc {

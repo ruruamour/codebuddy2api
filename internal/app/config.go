@@ -35,9 +35,9 @@ type Config struct {
 
 func LoadConfig() Config {
 	loadDotEnv(".env")
-	models := splitCSV(envString("CODEBUDDY2API_MODELS", "glm-5.1"))
+	models := splitCSV(envString("CODEBUDDY2API_MODELS", strings.Join(DefaultCodeBuddyModelIDs, ",")))
 	if len(models) == 0 {
-		models = []string{"glm-5.1"}
+		models = append([]string{}, DefaultCodeBuddyModelIDs...)
 	}
 	dbPath := envString("CODEBUDDY2API_DB_PATH", "./data/codebuddy2api.sqlite3")
 	_ = os.MkdirAll(filepath.Dir(expandHome(dbPath)), 0o755)

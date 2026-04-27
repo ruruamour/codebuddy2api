@@ -78,7 +78,7 @@ Important defaults:
 
 - upstream: `https://copilot.tencent.com/v2/chat/completions`
 - listen: `127.0.0.1:18182`
-- model list: `glm-5.1`
+- default model list: `glm-5.1`, `minimax-m2.7`, `kimi-k2.6`
 - database: `./data/codebuddy2api.sqlite3`
 
 `CODEBUDDY2API_API_KEY` protects `/v1/*`. `CODEBUDDY2API_ADMIN_KEY`

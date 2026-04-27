@@ -371,6 +371,30 @@
 
     <div id="tab-settings" class="hidden">
       <section>
+        <h2>全局模型配置</h2>
+        <div class="help small">
+          这里控制对外 <span class="mono">/v1/models</span> 暴露哪些模型，以及 <span class="mono">/v1/chat/completions</span> 允许调用哪些模型。未带 model 时会使用默认模型。
+        </div>
+        <div class="grid two" style="margin-top: 12px;">
+          <label>
+            <div class="label">允许模型列表（每行一个，或逗号分隔）</div>
+            <textarea id="modelsText" style="min-height: 150px;" placeholder="glm-5.1&#10;minimax-m2.7&#10;kimi-k2.6"></textarea>
+          </label>
+          <div>
+            <label>
+              <div class="label">默认模型</div>
+              <input id="defaultModel" placeholder="glm-5.1" />
+            </label>
+            <div class="actions" style="margin-top: 12px;">
+              <button id="saveModels" type="button">保存模型配置</button>
+            </div>
+            <div class="muted small" style="margin-top: 10px;">默认模型必须在允许模型列表内；保存后立即影响模型列表和新请求。</div>
+          </div>
+        </div>
+        <h3 style="margin-top: 16px;">CodeBuddy 已知模型</h3>
+        <div id="modelCatalog" class="grid two"></div>
+      </section>
+      <section>
         <h2>接入说明</h2>
         <div class="grid two">
           <div class="card">
@@ -381,8 +405,8 @@
           <div class="card">
             <h3>sub2api 接入</h3>
             <p class="muted mono">base_url = http://127.0.0.1:18182</p>
-            <p class="muted mono">model = glm-5.1</p>
-            <p class="muted">sub2api 继续按站内 glm-5.1 价格计费；这里记录上游真实 usage.credit 方便对账。</p>
+            <p class="muted mono">model = glm-5.1 / minimax-m2.7 / kimi-k2.6</p>
+            <p class="muted">sub2api 继续按站内模型价格计费；这里记录上游真实 usage.credit 方便对账。</p>
           </div>
           <div class="card">
             <h3>Credits 查询</h3>
@@ -432,7 +456,7 @@
   </div>
 
   <script>
-    const state = { accounts: [], stats: null, editingId: null };
+    const state = { accounts: [], stats: null, settings: null, editingId: null };
     const keyInput = document.getElementById("adminKey");
     const toast = document.getElementById("toast");
     keyInput.value = localStorage.getItem("codebuddy2api.adminKey") || "";
@@ -456,6 +480,7 @@
     document.getElementById("statusFilter").addEventListener("change", renderAccounts);
     document.getElementById("previewImport").addEventListener("click", previewImport);
     document.getElementById("runImport").addEventListener("click", runImport);
+    document.getElementById("saveModels").addEventListener("click", saveModelSettings);
     document.getElementById("bulkEnable").addEventListener("click", () => bulkSetEnabled(true));
     document.getElementById("bulkDisable").addEventListener("click", () => bulkSetEnabled(false));
     document.getElementById("bulkProbe").addEventListener("click", bulkProbe);
@@ -566,13 +591,16 @@
     async function refreshAll() {
       try {
         localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-        const [stats, accounts] = await Promise.all([
+        const [stats, accounts, settings] = await Promise.all([
           api("/admin/stats"),
           api("/admin/accounts"),
+          api("/admin/settings"),
         ]);
         state.stats = stats;
         state.accounts = accounts.accounts || [];
+        state.settings = settings;
         renderStats();
+        renderSettings();
         renderCredits();
         renderProblemAccounts();
         renderAccounts();
@@ -581,6 +609,64 @@
         document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key 后点击“刷新数据”。</div>';
         document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key。</div>';
         document.getElementById("accountCredits").innerHTML = '<div class="help small">Credits 概览未加载。</div>';
+        document.getElementById("modelCatalog").innerHTML = '<div class="help small">模型配置未加载。</div>';
+        show(err.message, true);
+      }
+    }
+
+    function splitModelsText(value) {
+      return String(value || "")
+        .split(/[\n,\t\r]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    function addCatalogModel(id) {
+      const input = document.getElementById("modelsText");
+      const models = splitModelsText(input.value);
+      if (!models.includes(id)) {
+        models.push(id);
+        input.value = models.join("\n");
+      }
+      if (!document.getElementById("defaultModel").value.trim()) {
+        document.getElementById("defaultModel").value = models[0] || id;
+      }
+    }
+
+    function renderSettings() {
+      const settings = state.settings || {};
+      const models = settings.models || [];
+      document.getElementById("modelsText").value = models.join("\n");
+      document.getElementById("defaultModel").value = settings.default_model || models[0] || "";
+      const catalog = settings.model_catalog || [];
+      const enabled = new Set(models);
+      document.getElementById("modelCatalog").innerHTML = catalog.map((model) => `
+        <div class="card">
+          <div class="actions" style="justify-content: space-between;">
+            <strong class="mono">${escapeHtml(model.id)}</strong>
+            <button class="${enabled.has(model.id) ? "secondary" : "ghost"}" type="button" onclick="addCatalogModel('${escapeHtml(model.id)}')">${enabled.has(model.id) ? "已添加" : "添加"}</button>
+          </div>
+          <div class="muted">${escapeHtml(model.name || model.id)}</div>
+          <div class="small muted">系数：<span class="mono">${escapeHtml(model.credits || "-")}</span></div>
+          <div class="small muted">上下文：${escapeHtml(fmt(model.max_input_tokens))} in / ${escapeHtml(fmt(model.max_output_tokens))} out${model.supports_images ? "，支持图片" : ""}</div>
+        </div>
+      `).join("");
+    }
+
+    async function saveModelSettings() {
+      const models = splitModelsText(document.getElementById("modelsText").value);
+      if (!models.length) return show("至少保留一个模型。", true);
+      const defaultModel = document.getElementById("defaultModel").value.trim() || models[0];
+      if (!models.includes(defaultModel)) return show("默认模型必须在允许模型列表内。", true);
+      try {
+        const settings = await api("/admin/settings", {
+          method: "PATCH",
+          body: JSON.stringify({ models, default_model: defaultModel }),
+        });
+        state.settings = settings;
+        renderSettings();
+        show("模型配置已保存。");
+      } catch (err) {
         show(err.message, true);
       }
     }
