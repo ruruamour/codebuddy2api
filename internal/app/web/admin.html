@@ -132,6 +132,14 @@
     tr:last-child td { border-bottom: 0; }
     tbody tr:hover { background: rgba(56,189,248,.05); }
     td input { min-width: 78px; }
+    td input.inline-number {
+      width: 86px;
+      min-width: 0;
+      padding: 6px 8px;
+      border-radius: 8px;
+      text-align: right;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
     td textarea { min-width: 170px; }
     .row-title { font-weight: 800; color: #dbeafe; }
     .row-sub { margin-top: 2px; color: var(--muted); font-size: 12px; }
@@ -719,7 +727,7 @@
       const barClass = limit > 0 && percent >= 85 ? "credit-bar warn" : "credit-bar";
       const creditText = limit > 0
         ? `${fmt(used)} / ${fmt(remaining)} 剩 / ${fmt(limit)}`
-        : `${fmt(used)} / 不限`;
+        : `${fmt(used)} / 未设置上限`;
       const lastLine = a.last_error
         ? `<div class="row-sub" title="${escapeHtml(a.last_error)}">错误：${escapeHtml(truncateText(a.last_error, 48))}</div>`
         : `<div class="row-sub">最近成功：${escapeHtml(time(a.last_success_at))}</div>`;
@@ -741,8 +749,8 @@
             <div class="mono">${escapeHtml(creditText)}</div>
             ${limit > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
           </td>
-          <td class="mono">${escapeHtml(fmt(a.priority))}</td>
-          <td class="mono">${escapeHtml(fmt(a.weight))}</td>
+          <td><input class="inline-number" title="修改后自动保存" type="number" value="${escapeHtml(a.priority)}" onchange="patchNumber(${a.id}, 'priority', this.value)" onkeydown="inlineEnter(event)" /></td>
+          <td><input class="inline-number" title="修改后自动保存，范围 1-100" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" onchange="patchNumber(${a.id}, 'weight', this.value)" onkeydown="inlineEnter(event)" /></td>
           <td>
             <span class="mono">${escapeHtml(fmt(a.in_flight))}/${escapeHtml(fmt(a.concurrency))}</span>
           </td>
@@ -792,6 +800,25 @@
 
     function editField(field) {
       return document.querySelector(`[data-edit-field="${field}"]`);
+    }
+
+    function inlineEnter(event) {
+      if (event.key === "Enter") {
+        event.currentTarget.blur();
+      }
+    }
+
+    async function patchNumber(id, field, raw) {
+      const value = Number(raw || 0);
+      if (!Number.isFinite(value)) return show(`${field} 必须是数字。`, true);
+      try {
+        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
+        show(`账号 ${id} 的 ${field === "priority" ? "优先级" : "权重"} 已保存。`);
+        await refreshAll();
+      } catch (err) {
+        show(err.message, true);
+        await refreshAll();
+      }
     }
 
     function openEdit(id) {
