@@ -15,11 +15,15 @@ protocol shape, but is rewritten around the NuoAPI production needs:
 ## Quick start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
-python main.py
+go run ./cmd/codebuddy2api
+```
+
+Build a binary:
+
+```bash
+go build -o codebuddy2api ./cmd/codebuddy2api
+./codebuddy2api
 ```
 
 Add a CodeBuddy account:
