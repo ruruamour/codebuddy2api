@@ -295,7 +295,7 @@
         <h2>快速新增账号</h2>
         <form id="addForm" class="grid form">
           <label><div class="label">账号名称</div><input name="name" value="CodeBuddy 账号" required /></label>
-          <label><div class="label">ck Key</div><input name="api_key" type="password" placeholder="ck_..." required /></label>
+          <label><div class="label">ck Key</div><input name="api_key" type="text" placeholder="ck_..." required /></label>
           <label><div class="label">是否启用</div><select name="enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
           <label><div class="label">额度上限 credit</div><input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
           <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
@@ -307,7 +307,7 @@
           <label><div class="label">权重</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
           <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
           <label><div class="label">绑定代理</div><input name="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
-          <label><div class="label">到额度自动暂停</div><select name="quota_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
+          <label><div class="label">到额度自动暂停</div><select name="quota_auto_disable"><option value="true" selected>开启</option><option value="false">关闭</option></select></label>
           <label><div class="label">过期时间</div><input name="expires_at" type="datetime-local" /></label>
           <label><div class="label">过期自动暂停</div><select name="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
           <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8","machine_id":"..."}'></textarea></label>
@@ -355,7 +355,7 @@
           <label><div class="label">默认备注</div><input id="importNotes" placeholder="批次说明，可空" /></label>
           <label><div class="label">导入后状态</div><select id="importEnabled"><option value="true">启用</option><option value="false">停用</option></select></label>
           <label><div class="label">默认额度上限 credit</div><input id="importQuotaLimit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
-          <label><div class="label">到额度自动暂停</div><select id="importQuotaAutoDisable"><option value="false">关闭</option><option value="true">开启</option></select></label>
+          <label><div class="label">到额度自动暂停</div><select id="importQuotaAutoDisable"><option value="true" selected>开启</option><option value="false">关闭</option></select></label>
         </div>
         <label style="display:block; margin-top: 12px;">
           <div class="label">批量内容</div>
