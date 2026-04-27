@@ -772,7 +772,8 @@
 
     async function addAccount(event) {
       event.preventDefault();
-      const form = new FormData(event.currentTarget);
+      const formEl = event.currentTarget;
+      const form = new FormData(formEl);
       try {
         const payload = {
           name: form.get("name"),
@@ -790,7 +791,7 @@
           header_profile: parseOptionalJson(form.get("header_profile"), {}),
         };
         await api("/admin/accounts", { method: "POST", body: JSON.stringify(payload) });
-        event.currentTarget.reset();
+        formEl.reset();
         show("账号已添加。");
         await refreshAll();
       } catch (err) {
