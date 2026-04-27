@@ -347,7 +347,17 @@ func (s *Server) recordFailure(id int64, err error) {
 		statusCode = upstreamErr.StatusCode
 		message = upstreamErr.Body
 	}
-	s.store.RecordFailure(id, message, statusCode, s.cfg.CooldownSeconds, s.cfg.FailureThreshold)
+	autoDisable := false
+	reason := ""
+	if _, ok := s.cfg.AutoDisableStatusCodes[statusCode]; ok {
+		autoDisable = true
+		reason = fmt.Sprintf("status_%d", statusCode)
+	}
+	if s.cfg.AutoDisableQuotaErrors && isQuotaExhaustedError(statusCode, message) {
+		autoDisable = true
+		reason = "quota_or_credits_exhausted"
+	}
+	s.store.RecordFailure(id, message, statusCode, s.cfg.CooldownSeconds, s.cfg.FailureThreshold, autoDisable, reason)
 }
 
 func writeUpstreamError(w http.ResponseWriter, err error) {
@@ -443,4 +453,32 @@ func mapKeys(value map[string]any) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+func isQuotaExhaustedError(statusCode int, message string) bool {
+	text := strings.ToLower(message)
+	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
+		return false
+	}
+	needles := []string{
+		"usage_limit",
+		"usage limit",
+		"insufficient_quota",
+		"quota exceeded",
+		"quota_exceeded",
+		"credit exhausted",
+		"credits exhausted",
+		"balance insufficient",
+		"insufficient balance",
+		"no credits",
+		"额度不足",
+		"额度已用完",
+		"余额不足",
+	}
+	for _, needle := range needles {
+		if strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }

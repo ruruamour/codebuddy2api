@@ -13,20 +13,22 @@ import (
 const Version = "0.2.0-go"
 
 type Config struct {
-	Host                  string
-	Port                  int
-	DBPath                string
-	APIKey                string
-	AdminKey              string
-	UpstreamURL           string
-	Models                []string
-	CooldownSeconds       int
-	FailureThreshold      int
-	DefaultConcurrency    int
-	RequestTimeoutSeconds int
-	ConnectTimeoutSeconds int
-	LogLevel              string
-	DebugRequests         bool
+	Host                   string
+	Port                   int
+	DBPath                 string
+	APIKey                 string
+	AdminKey               string
+	UpstreamURL            string
+	Models                 []string
+	CooldownSeconds        int
+	FailureThreshold       int
+	DefaultConcurrency     int
+	RequestTimeoutSeconds  int
+	ConnectTimeoutSeconds  int
+	LogLevel               string
+	DebugRequests          bool
+	AutoDisableStatusCodes map[int]struct{}
+	AutoDisableQuotaErrors bool
 }
 
 func LoadConfig() Config {
@@ -38,20 +40,22 @@ func LoadConfig() Config {
 	dbPath := envString("CODEBUDDY2API_DB_PATH", "./data/codebuddy2api.sqlite3")
 	_ = os.MkdirAll(filepath.Dir(expandHome(dbPath)), 0o755)
 	return Config{
-		Host:                  envString("CODEBUDDY2API_HOST", "127.0.0.1"),
-		Port:                  envInt("CODEBUDDY2API_PORT", 18182),
-		DBPath:                dbPath,
-		APIKey:                strings.TrimSpace(os.Getenv("CODEBUDDY2API_API_KEY")),
-		AdminKey:              strings.TrimSpace(os.Getenv("CODEBUDDY2API_ADMIN_KEY")),
-		UpstreamURL:           envString("CODEBUDDY2API_UPSTREAM_URL", "https://copilot.tencent.com/v2/chat/completions"),
-		Models:                models,
-		CooldownSeconds:       envInt("CODEBUDDY2API_COOLDOWN_SECONDS", 300),
-		FailureThreshold:      envInt("CODEBUDDY2API_FAILURE_THRESHOLD", 3),
-		DefaultConcurrency:    envInt("CODEBUDDY2API_DEFAULT_CONCURRENCY", 1),
-		RequestTimeoutSeconds: envInt("CODEBUDDY2API_REQUEST_TIMEOUT_SECONDS", 300),
-		ConnectTimeoutSeconds: envInt("CODEBUDDY2API_CONNECT_TIMEOUT_SECONDS", 10),
-		LogLevel:              strings.ToUpper(envString("CODEBUDDY2API_LOG_LEVEL", "INFO")),
-		DebugRequests:         envBool("CODEBUDDY2API_DEBUG_REQUESTS", false),
+		Host:                   envString("CODEBUDDY2API_HOST", "127.0.0.1"),
+		Port:                   envInt("CODEBUDDY2API_PORT", 18182),
+		DBPath:                 dbPath,
+		APIKey:                 strings.TrimSpace(os.Getenv("CODEBUDDY2API_API_KEY")),
+		AdminKey:               strings.TrimSpace(os.Getenv("CODEBUDDY2API_ADMIN_KEY")),
+		UpstreamURL:            envString("CODEBUDDY2API_UPSTREAM_URL", "https://copilot.tencent.com/v2/chat/completions"),
+		Models:                 models,
+		CooldownSeconds:        envInt("CODEBUDDY2API_COOLDOWN_SECONDS", 300),
+		FailureThreshold:       envInt("CODEBUDDY2API_FAILURE_THRESHOLD", 3),
+		DefaultConcurrency:     envInt("CODEBUDDY2API_DEFAULT_CONCURRENCY", 1),
+		RequestTimeoutSeconds:  envInt("CODEBUDDY2API_REQUEST_TIMEOUT_SECONDS", 300),
+		ConnectTimeoutSeconds:  envInt("CODEBUDDY2API_CONNECT_TIMEOUT_SECONDS", 10),
+		LogLevel:               strings.ToUpper(envString("CODEBUDDY2API_LOG_LEVEL", "INFO")),
+		DebugRequests:          envBool("CODEBUDDY2API_DEBUG_REQUESTS", false),
+		AutoDisableStatusCodes: envIntSet("CODEBUDDY2API_AUTO_DISABLE_STATUS_CODES", "401,403"),
+		AutoDisableQuotaErrors: envBool("CODEBUDDY2API_AUTO_DISABLE_QUOTA_ERRORS", true),
 	}
 }
 
@@ -103,6 +107,17 @@ func envBool(name string, fallback bool) bool {
 	default:
 		return fallback
 	}
+}
+
+func envIntSet(name string, fallback string) map[int]struct{} {
+	result := map[int]struct{}{}
+	for _, item := range splitCSV(envString(name, fallback)) {
+		parsed, err := strconv.Atoi(item)
+		if err == nil {
+			result[parsed] = struct{}{}
+		}
+	}
+	return result
 }
 
 func splitCSV(value string) []string {

@@ -27,7 +27,7 @@ type Account struct {
 	HeaderProfile       map[string]any `json:"header_profile"`
 	Notes               sql.NullString `json:"-"`
 	ConsecutiveFailures int            `json:"consecutive_failures"`
-	CooldownUntil        sql.NullInt64  `json:"-"`
+	CooldownUntil       sql.NullInt64  `json:"-"`
 }
 
 type PublicAccount struct {
@@ -43,7 +43,7 @@ type PublicAccount struct {
 	HeaderProfile       map[string]any `json:"header_profile"`
 	Notes               *string        `json:"notes"`
 	ConsecutiveFailures int            `json:"consecutive_failures"`
-	CooldownUntil        *int64         `json:"cooldown_until"`
+	CooldownUntil       *int64         `json:"cooldown_until"`
 	TotalRequests       int64          `json:"total_requests"`
 	TotalSuccess        int64          `json:"total_success"`
 	TotalFailures       int64          `json:"total_failures"`
@@ -51,37 +51,55 @@ type PublicAccount struct {
 	PromptTokens        int64          `json:"prompt_tokens"`
 	CompletionTokens    int64          `json:"completion_tokens"`
 	TotalTokens         int64          `json:"total_tokens"`
-	LastSuccessAt        *int64         `json:"last_success_at"`
-	LastFailureAt        *int64         `json:"last_failure_at"`
-	LastError            *string        `json:"last_error"`
+	LastSuccessAt       *int64         `json:"last_success_at"`
+	LastFailureAt       *int64         `json:"last_failure_at"`
+	LastError           *string        `json:"last_error"`
+	LastErrorStatus     *int           `json:"last_error_status"`
+	QuotaLimit          float64        `json:"quota_limit"`
+	QuotaAutoDisable    bool           `json:"quota_auto_disable"`
+	QuotaRemaining      *float64       `json:"quota_remaining"`
+	QuotaExceeded       bool           `json:"quota_exceeded"`
+	ExpiresAt           *int64         `json:"expires_at"`
+	ExpireAutoDisable   bool           `json:"expire_auto_disable"`
+	LastDisableReason   *string        `json:"last_disable_reason"`
+	LastDisableAt       *int64         `json:"last_disable_at"`
 	CreatedAt           int64          `json:"created_at"`
 	UpdatedAt           int64          `json:"updated_at"`
 	InFlight            int            `json:"in_flight,omitempty"`
 }
 
 type AccountCreate struct {
-	Name          string         `json:"name"`
-	APIKey        string         `json:"api_key"`
-	Enabled       *bool          `json:"enabled"`
-	Priority      *int           `json:"priority"`
-	Weight        *int           `json:"weight"`
-	Concurrency   *int           `json:"concurrency"`
-	ProxyURL      *string        `json:"proxy_url"`
-	HeaderProfile map[string]any `json:"header_profile"`
-	Notes         *string        `json:"notes"`
+	Name              string         `json:"name"`
+	APIKey            string         `json:"api_key"`
+	Enabled           *bool          `json:"enabled"`
+	Priority          *int           `json:"priority"`
+	Weight            *int           `json:"weight"`
+	Concurrency       *int           `json:"concurrency"`
+	ProxyURL          *string        `json:"proxy_url"`
+	HeaderProfile     map[string]any `json:"header_profile"`
+	Notes             *string        `json:"notes"`
+	QuotaLimit        *float64       `json:"quota_limit"`
+	QuotaAutoDisable  *bool          `json:"quota_auto_disable"`
+	ExpiresAt         *int64         `json:"expires_at"`
+	ExpireAutoDisable *bool          `json:"expire_auto_disable"`
 }
 
 type AccountPatch struct {
-	Name          *string        `json:"name"`
-	APIKey        *string        `json:"api_key"`
-	Enabled       *bool          `json:"enabled"`
-	Priority      *int           `json:"priority"`
-	Weight        *int           `json:"weight"`
-	Concurrency   *int           `json:"concurrency"`
-	ProxyURL      *string        `json:"proxy_url"`
-	HeaderProfile map[string]any `json:"header_profile"`
-	Notes         *string        `json:"notes"`
-	ResetFailures bool           `json:"reset_failures"`
+	Name              *string        `json:"name"`
+	APIKey            *string        `json:"api_key"`
+	Enabled           *bool          `json:"enabled"`
+	Priority          *int           `json:"priority"`
+	Weight            *int           `json:"weight"`
+	Concurrency       *int           `json:"concurrency"`
+	ProxyURL          *string        `json:"proxy_url"`
+	HeaderProfile     map[string]any `json:"header_profile"`
+	Notes             *string        `json:"notes"`
+	ResetFailures     bool           `json:"reset_failures"`
+	QuotaLimit        *float64       `json:"quota_limit"`
+	QuotaAutoDisable  *bool          `json:"quota_auto_disable"`
+	ExpiresAt         *int64         `json:"expires_at"`
+	ExpireAutoDisable *bool          `json:"expire_auto_disable"`
+	ResetUsage        bool           `json:"reset_usage"`
 }
 
 type Stats struct {
@@ -148,11 +166,63 @@ CREATE TABLE IF NOT EXISTS accounts (
   last_success_at INTEGER,
   last_failure_at INTEGER,
   last_error TEXT,
+  last_error_status INTEGER,
+  quota_limit REAL NOT NULL DEFAULT 0,
+  quota_auto_disable INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER,
+  expire_auto_disable INTEGER NOT NULL DEFAULT 0,
+  last_disable_reason TEXT,
+  last_disable_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_accounts_sched ON accounts(enabled, status, priority, id);
 `)
+	if err != nil {
+		return err
+	}
+	for _, migration := range []struct {
+		name string
+		ddl  string
+	}{
+		{"last_error_status", "ALTER TABLE accounts ADD COLUMN last_error_status INTEGER"},
+		{"quota_limit", "ALTER TABLE accounts ADD COLUMN quota_limit REAL NOT NULL DEFAULT 0"},
+		{"quota_auto_disable", "ALTER TABLE accounts ADD COLUMN quota_auto_disable INTEGER NOT NULL DEFAULT 0"},
+		{"expires_at", "ALTER TABLE accounts ADD COLUMN expires_at INTEGER"},
+		{"expire_auto_disable", "ALTER TABLE accounts ADD COLUMN expire_auto_disable INTEGER NOT NULL DEFAULT 0"},
+		{"last_disable_reason", "ALTER TABLE accounts ADD COLUMN last_disable_reason TEXT"},
+		{"last_disable_at", "ALTER TABLE accounts ADD COLUMN last_disable_at INTEGER"},
+	} {
+		if err := s.ensureColumn("accounts", migration.name, migration.ddl); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ensureColumn(table string, column string, ddl string) error {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ddl)
 	return err
 }
 
@@ -172,6 +242,9 @@ func (s *Store) AddAccount(payload AccountCreate) (int64, error) {
 	priority := intDefault(payload.Priority, 100)
 	weight := clamp(intDefault(payload.Weight, 1), 1, 100)
 	concurrency := clamp(intDefault(payload.Concurrency, 1), 1, 100)
+	quotaLimit := floatDefault(payload.QuotaLimit, 0)
+	quotaAutoDisable := boolDefault(payload.QuotaAutoDisable, false)
+	expireAutoDisable := boolDefault(payload.ExpireAutoDisable, false)
 	status := "active"
 	if !enabled {
 		status = "disabled"
@@ -184,10 +257,12 @@ func (s *Store) AddAccount(payload AccountCreate) (int64, error) {
 	result, err := s.db.Exec(`
 INSERT INTO accounts (
   name, api_key, enabled, status, priority, weight, concurrency,
-  proxy_url, header_profile, notes, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  proxy_url, header_profile, notes, quota_limit, quota_auto_disable,
+  expires_at, expire_auto_disable, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		name, apiKey, boolInt(enabled), status, priority, weight, concurrency,
-		nullableString(payload.ProxyURL), string(profile), nullableString(payload.Notes), ts, ts)
+		nullableString(payload.ProxyURL), string(profile), nullableString(payload.Notes),
+		quotaLimit, boolInt(quotaAutoDisable), nullableInt64(payload.ExpiresAt), boolInt(expireAutoDisable), ts, ts)
 	if err != nil {
 		return 0, err
 	}
@@ -255,9 +330,37 @@ func (s *Store) PatchAccount(id int64, payload AccountPatch) (bool, error) {
 			"consecutive_failures = ?",
 			"cooldown_until = ?",
 			"last_error = ?",
+			"last_error_status = ?",
+			"last_disable_reason = ?",
+			"last_disable_at = ?",
 			"status = ?",
 		)
-		args = append(args, 0, nil, nil, "active")
+		args = append(args, 0, nil, nil, nil, nil, nil, "active")
+	}
+	if payload.QuotaLimit != nil {
+		sets = append(sets, "quota_limit = ?")
+		args = append(args, *payload.QuotaLimit)
+	}
+	if payload.QuotaAutoDisable != nil {
+		sets = append(sets, "quota_auto_disable = ?")
+		args = append(args, boolInt(*payload.QuotaAutoDisable))
+	}
+	if payload.ExpiresAt != nil {
+		sets = append(sets, "expires_at = ?")
+		args = append(args, nullableInt64(payload.ExpiresAt))
+	}
+	if payload.ExpireAutoDisable != nil {
+		sets = append(sets, "expire_auto_disable = ?")
+		args = append(args, boolInt(*payload.ExpireAutoDisable))
+	}
+	if payload.ResetUsage {
+		sets = append(sets,
+			"total_credit = ?",
+			"prompt_tokens = ?",
+			"completion_tokens = ?",
+			"total_tokens = ?",
+		)
+		args = append(args, 0, 0, 0, 0)
 	}
 	if len(sets) == 0 {
 		account, err := s.GetAccount(id)
@@ -278,9 +381,13 @@ func (s *Store) SetEnabled(id int64, enabled bool) (bool, error) {
 	result, err := s.db.Exec(`
 UPDATE accounts
 SET enabled = ?, status = ?, consecutive_failures = CASE WHEN ? THEN 0 ELSE consecutive_failures END,
-    cooldown_until = CASE WHEN ? THEN NULL ELSE cooldown_until END, updated_at = ?
+    cooldown_until = CASE WHEN ? THEN NULL ELSE cooldown_until END,
+    last_disable_reason = CASE WHEN ? THEN NULL ELSE last_disable_reason END,
+    last_disable_at = CASE WHEN ? THEN NULL ELSE last_disable_at END,
+    last_error_status = CASE WHEN ? THEN NULL ELSE last_error_status END,
+    updated_at = ?
 WHERE id = ?`,
-		boolInt(enabled), enabledStatus(enabled), enabled, enabled, ts, id)
+		boolInt(enabled), enabledStatus(enabled), enabled, enabled, enabled, enabled, enabled, ts, id)
 	if err != nil {
 		return false, err
 	}
@@ -310,7 +417,15 @@ FROM accounts WHERE id = ?`, id)
 }
 
 func (s *Store) ListAccounts() ([]PublicAccount, error) {
-	rows, err := s.db.Query("SELECT * FROM accounts ORDER BY priority DESC, id ASC")
+	rows, err := s.db.Query(`
+SELECT id, name, api_key, enabled, status, priority, weight, concurrency,
+       proxy_url, header_profile, notes, consecutive_failures, cooldown_until,
+       total_requests, total_success, total_failures, total_credit,
+       prompt_tokens, completion_tokens, total_tokens, last_success_at,
+       last_failure_at, last_error, last_error_status, quota_limit,
+       quota_auto_disable, expires_at, expire_auto_disable,
+       last_disable_reason, last_disable_at, created_at, updated_at
+FROM accounts ORDER BY priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -328,13 +443,17 @@ func (s *Store) ListAccounts() ([]PublicAccount, error) {
 }
 
 func (s *Store) SchedulableAccounts() ([]Account, error) {
+	ts := now()
+	s.autoPauseDueAccounts(ts)
 	rows, err := s.db.Query(`
 SELECT id, name, api_key, enabled, status, priority, weight, concurrency, proxy_url,
        header_profile, notes, consecutive_failures, cooldown_until
 FROM accounts
 WHERE enabled = 1
   AND (status = 'active' OR (status = 'cooldown' AND (cooldown_until IS NULL OR cooldown_until <= ?)))
-ORDER BY priority DESC, id ASC`, now())
+  AND NOT (quota_auto_disable = 1 AND quota_limit > 0 AND total_credit >= quota_limit)
+  AND NOT (expire_auto_disable = 1 AND expires_at IS NOT NULL AND expires_at <= ?)
+ORDER BY priority DESC, id ASC`, ts, ts)
 	if err != nil {
 		return nil, err
 	}
@@ -375,9 +494,10 @@ SET status = 'active',
     last_error = NULL,
     updated_at = ?
 WHERE id = ?`, credit, prompt, completion, total, ts, ts, id)
+	s.autoPauseAccountIfNeeded(id, ts)
 }
 
-func (s *Store) RecordFailure(id int64, errorText string, statusCode int, cooldownSeconds int, failureThreshold int) {
+func (s *Store) RecordFailure(id int64, errorText string, statusCode int, cooldownSeconds int, failureThreshold int, autoDisable bool, disableReason string) {
 	ts := now()
 	if len(errorText) > 1000 {
 		errorText = errorText[:1000]
@@ -388,9 +508,16 @@ func (s *Store) RecordFailure(id int64, errorText string, statusCode int, cooldo
 	enabled := 1
 	status := "active"
 	var cooldownUntil any
-	if statusCode == 401 || statusCode == 403 {
+	var lastDisableReason any
+	var lastDisableAt any
+	if autoDisable {
 		enabled = 0
 		status = "disabled"
+		if disableReason == "" {
+			disableReason = fmt.Sprintf("auto_disabled_status_%d", statusCode)
+		}
+		lastDisableReason = disableReason
+		lastDisableAt = ts
 	} else if statusCode == 429 || statusCode >= 500 || nextFailures >= failureThreshold {
 		status = "cooldown"
 		cooldownUntil = ts + int64(cooldownSeconds)
@@ -405,8 +532,37 @@ SET enabled = ?,
     total_failures = total_failures + 1,
     last_failure_at = ?,
     last_error = ?,
+    last_error_status = ?,
+    last_disable_reason = CASE WHEN ? THEN ? ELSE last_disable_reason END,
+    last_disable_at = CASE WHEN ? THEN ? ELSE last_disable_at END,
     updated_at = ?
-WHERE id = ?`, enabled, status, nextFailures, cooldownUntil, ts, errorText, ts, id)
+WHERE id = ?`, enabled, status, nextFailures, cooldownUntil, ts, errorText, nullableStatus(statusCode), autoDisable, lastDisableReason, autoDisable, lastDisableAt, ts, id)
+}
+
+func (s *Store) autoPauseDueAccounts(ts int64) {
+	_, _ = s.db.Exec(`
+UPDATE accounts
+SET enabled = 0, status = 'disabled', last_disable_reason = 'quota_exhausted',
+    last_disable_at = ?, updated_at = ?
+WHERE enabled = 1 AND quota_auto_disable = 1 AND quota_limit > 0 AND total_credit >= quota_limit`, ts, ts)
+	_, _ = s.db.Exec(`
+UPDATE accounts
+SET enabled = 0, status = 'disabled', last_disable_reason = 'expired',
+    last_disable_at = ?, updated_at = ?
+WHERE enabled = 1 AND expire_auto_disable = 1 AND expires_at IS NOT NULL AND expires_at <= ?`, ts, ts, ts)
+}
+
+func (s *Store) autoPauseAccountIfNeeded(id int64, ts int64) {
+	_, _ = s.db.Exec(`
+UPDATE accounts
+SET enabled = 0, status = 'disabled', last_disable_reason = 'quota_exhausted',
+    last_disable_at = ?, updated_at = ?
+WHERE id = ? AND enabled = 1 AND quota_auto_disable = 1 AND quota_limit > 0 AND total_credit >= quota_limit`, ts, ts, id)
+	_, _ = s.db.Exec(`
+UPDATE accounts
+SET enabled = 0, status = 'disabled', last_disable_reason = 'expired',
+    last_disable_at = ?, updated_at = ?
+WHERE id = ? AND enabled = 1 AND expire_auto_disable = 1 AND expires_at IS NOT NULL AND expires_at <= ?`, ts, ts, id, ts)
 }
 
 func (s *Store) Stats() (Stats, error) {
@@ -479,6 +635,12 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	var lastSuccess sql.NullInt64
 	var lastFailure sql.NullInt64
 	var lastError sql.NullString
+	var lastErrorStatus sql.NullInt64
+	var quotaAutoDisable int
+	var expiresAt sql.NullInt64
+	var expireAutoDisable int
+	var lastDisableReason sql.NullString
+	var lastDisableAt sql.NullInt64
 	if err := rows.Scan(
 		&data.ID,
 		&data.Name,
@@ -503,6 +665,13 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 		&lastSuccess,
 		&lastFailure,
 		&lastError,
+		&lastErrorStatus,
+		&data.QuotaLimit,
+		&quotaAutoDisable,
+		&expiresAt,
+		&expireAutoDisable,
+		&lastDisableReason,
+		&lastDisableAt,
 		&data.CreatedAt,
 		&data.UpdatedAt,
 	); err != nil {
@@ -517,6 +686,20 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	data.LastSuccessAt = nullIntPtr(lastSuccess)
 	data.LastFailureAt = nullIntPtr(lastFailure)
 	data.LastError = nullStringPtr(lastError)
+	data.LastErrorStatus = nullIntPtrAsInt(lastErrorStatus)
+	data.QuotaAutoDisable = quotaAutoDisable == 1
+	if data.QuotaLimit > 0 {
+		remaining := data.QuotaLimit - data.TotalCredit
+		if remaining < 0 {
+			remaining = 0
+		}
+		data.QuotaRemaining = &remaining
+		data.QuotaExceeded = data.TotalCredit >= data.QuotaLimit
+	}
+	data.ExpiresAt = nullIntPtr(expiresAt)
+	data.ExpireAutoDisable = expireAutoDisable == 1
+	data.LastDisableReason = nullStringPtr(lastDisableReason)
+	data.LastDisableAt = nullIntPtr(lastDisableAt)
 	return data, nil
 }
 
@@ -563,6 +746,20 @@ func nullableString(value *string) any {
 	return *value
 }
 
+func nullableInt64(value *int64) any {
+	if value == nil || *value <= 0 {
+		return nil
+	}
+	return *value
+}
+
+func nullableStatus(value int) any {
+	if value <= 0 {
+		return nil
+	}
+	return value
+}
+
 func nullStringPtr(value sql.NullString) *string {
 	if !value.Valid {
 		return nil
@@ -577,6 +774,14 @@ func nullIntPtr(value sql.NullInt64) *int64 {
 	return &value.Int64
 }
 
+func nullIntPtrAsInt(value sql.NullInt64) *int {
+	if !value.Valid {
+		return nil
+	}
+	converted := int(value.Int64)
+	return &converted
+}
+
 func defaultMap(value map[string]any) map[string]any {
 	if value == nil {
 		return map[string]any{}
@@ -585,6 +790,20 @@ func defaultMap(value map[string]any) map[string]any {
 }
 
 func intDefault(value *int, fallback int) int {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func floatDefault(value *float64, fallback float64) float64 {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func boolDefault(value *bool, fallback bool) bool {
 	if value == nil {
 		return fallback
 	}

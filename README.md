@@ -91,6 +91,10 @@ as `Authorization: Bearer <key>` to the Admin API. API responses only expose
 The management panel supports Chinese UI, account/key add and edit, key
 rotation, enable/disable, delete, probe, cooldown reset, filtering, bulk
 enable/disable/probe/reset, and line-based bulk import.
+It also supports per-account credit quota limits, quota-exhausted auto pause,
+expiry auto pause, and error-code based auto pause. CodeBuddy does not expose a
+confirmed stable balance endpoint for `ck_...` keys yet; the service uses the
+upstream `usage.credit` tail packet as the persisted accounting source.
 
 ## Account fields
 
@@ -99,6 +103,11 @@ enable/disable/probe/reset, and line-based bulk import.
 - `priority`: higher priority accounts are tried first.
 - `weight`: weighted round-robin inside the same priority tier.
 - `concurrency`: max in-flight requests for this account in the current process.
+- `quota_limit`: optional account credit limit. `0` means unlimited.
+- `quota_auto_disable`: disable scheduling when accumulated `usage.credit`
+  reaches `quota_limit`.
+- `expires_at` / `expire_auto_disable`: optional expiry timestamp and automatic
+  scheduling pause after expiry.
 - `proxy_url`: optional `http://`, `https://`, or `socks5://` proxy URL for this account.
 - `header_profile`: optional request header profile:
 

@@ -226,6 +226,10 @@
           <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
           <label><div class="label">绑定代理</div><input name="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
           <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
+          <label><div class="label">额度上限 credit</div><input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
+          <label><div class="label">到额度自动暂停</div><select name="quota_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
+          <label><div class="label">过期时间</div><input name="expires_at" type="datetime-local" /></label>
+          <label><div class="label">过期自动暂停</div><select name="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
           <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8","machine_id":"..."}'></textarea></label>
           <button type="submit">添加账号</button>
         </form>
@@ -269,6 +273,8 @@
           <label><div class="label">默认代理</div><input id="importProxy" placeholder="可空" /></label>
           <label><div class="label">默认备注</div><input id="importNotes" placeholder="批次说明，可空" /></label>
           <label><div class="label">导入后状态</div><select id="importEnabled"><option value="true">启用</option><option value="false">停用</option></select></label>
+          <label><div class="label">默认额度上限 credit</div><input id="importQuotaLimit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
+          <label><div class="label">到额度自动暂停</div><select id="importQuotaAutoDisable"><option value="false">关闭</option><option value="true">开启</option></select></label>
         </div>
         <label style="display:block; margin-top: 12px;">
           <div class="label">批量内容</div>
@@ -296,6 +302,11 @@
             <p class="muted mono">base_url = http://127.0.0.1:18182</p>
             <p class="muted mono">model = glm-5.1</p>
             <p class="muted">sub2api 继续按站内 glm-5.1 价格计费；这里记录上游真实 usage.credit 方便对账。</p>
+          </div>
+          <div class="card">
+            <h3>Credits 查询</h3>
+            <p class="muted">目前未发现 CodeBuddy Key 形态公开稳定的余额查询接口。面板里的 credit 使用量来自每次上游响应尾包 <span class="mono">usage.credit</span> 累计，这是当前不会额外消耗额度且最稳定的口径。</p>
+            <p class="muted">如果后续确认了官方 credits/balance endpoint，可以接到这里作为“真实余额同步”。</p>
           </div>
         </div>
       </section>
@@ -392,6 +403,20 @@
       return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
     }
 
+    function tsToLocalInput(ts) {
+      if (!ts) return "";
+      const d = new Date(ts * 1000);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function localInputToTs(value) {
+      if (!value) return 0;
+      const t = new Date(value).getTime();
+      if (!Number.isFinite(t)) return 0;
+      return Math.floor(t / 1000);
+    }
+
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
         "&": "&amp;",
@@ -420,6 +445,8 @@
         renderAccounts();
         document.getElementById("lastRefresh").textContent = `最后刷新：${new Date().toLocaleString("zh-CN", { hour12: false })}`;
       } catch (err) {
+        document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已经填写并保存 Admin Key，然后点击“刷新数据”。</div>';
+        document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。Admin API 需要管理口令。</div>';
         show(err.message, true);
       }
     }
@@ -459,6 +486,7 @@
           </div>
           <div class="small muted mono">${escapeHtml(a.api_key_preview || "-")}</div>
           <div class="small">失败：${escapeHtml(fmt(a.total_failures))}，连续失败：${escapeHtml(fmt(a.consecutive_failures))}</div>
+          <div class="small">暂停原因：${escapeHtml(disableReasonText(a.last_disable_reason))}</div>
           <div class="small muted">${escapeHtml(a.last_error || "无错误摘要")}</div>
         </div>
       `).join("");
@@ -475,6 +503,14 @@
     function statusBadge(a) {
       const status = statusValue(a);
       return `<span class="status ${escapeHtml(status)}"><span class="dot"></span>${escapeHtml(statusText(status))}</span>`;
+    }
+
+    function disableReasonText(reason) {
+      return {
+        quota_exhausted: "额度耗尽",
+        expired: "账号过期",
+        quota_or_credits_exhausted: "上游额度/credits 耗尽",
+      }[reason] || reason || "-";
     }
 
     function filteredAccounts() {
@@ -501,7 +537,7 @@
             <thead>
               <tr>
                 <th><input id="checkAll" type="checkbox" /></th>
-                <th>ID</th><th>状态</th><th>账号 / Key</th><th>调度</th><th>代理</th>
+                <th>ID</th><th>状态</th><th>账号 / Key</th><th>调度</th><th>配额 / 过期</th><th>代理</th>
                 <th>请求头 Profile</th><th>备注</th><th>消耗 / 健康</th><th>最近错误</th><th>操作</th>
               </tr>
             </thead>
@@ -534,6 +570,15 @@
             <label><div class="label">权重</div><input data-field="weight" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" /></label>
             <label><div class="label">并发</div><input data-field="concurrency" type="number" min="1" max="100" value="${escapeHtml(a.concurrency)}" /></label>
           </td>
+          <td class="small">
+            <label><div class="label">额度上限 credit</div><input data-field="quota_limit" type="number" min="0" step="0.000001" value="${escapeHtml(a.quota_limit || 0)}" /></label>
+            <label><div class="label">到额度自动暂停</div><select data-field="quota_auto_disable"><option value="false" ${a.quota_auto_disable ? "" : "selected"}>关闭</option><option value="true" ${a.quota_auto_disable ? "selected" : ""}>开启</option></select></label>
+            <div>已用 / 剩余：<span class="mono">${escapeHtml(fmt(a.total_credit))} / ${escapeHtml(fmt(a.quota_remaining))}</span></div>
+            <div>是否超额：${a.quota_exceeded ? "是" : "否"}</div>
+            <label><div class="label">过期时间</div><input data-field="expires_at" type="datetime-local" value="${escapeHtml(tsToLocalInput(a.expires_at))}" /></label>
+            <label><div class="label">过期自动暂停</div><select data-field="expire_auto_disable"><option value="false" ${a.expire_auto_disable ? "" : "selected"}>关闭</option><option value="true" ${a.expire_auto_disable ? "selected" : ""}>开启</option></select></label>
+            <div>暂停原因：${escapeHtml(disableReasonText(a.last_disable_reason))}</div>
+          </td>
           <td><input data-field="proxy_url" value="${escapeHtml(a.proxy_url || "")}" placeholder="可空" /></td>
           <td><textarea data-field="header_profile">${escapeHtml(profile)}</textarea></td>
           <td><textarea data-field="notes">${escapeHtml(a.notes || "")}</textarea></td>
@@ -543,7 +588,8 @@
             tokens：<span class="mono">${escapeHtml(fmt(a.total_tokens))}</span><br>
             最近成功：${escapeHtml(time(a.last_success_at))}<br>
             最近失败：${escapeHtml(time(a.last_failure_at))}<br>
-            连续失败：<span class="mono">${escapeHtml(fmt(a.consecutive_failures))}</span>
+            连续失败：<span class="mono">${escapeHtml(fmt(a.consecutive_failures))}</span><br>
+            最近错误码：<span class="mono">${escapeHtml(fmt(a.last_error_status))}</span>
           </td>
           <td class="small">${escapeHtml(a.last_error || "-")}</td>
           <td>
@@ -571,6 +617,10 @@
           concurrency: Number(form.get("concurrency") || 1),
           proxy_url: form.get("proxy_url") ? String(form.get("proxy_url")) : null,
           notes: form.get("notes") ? String(form.get("notes")) : null,
+          quota_limit: Number(form.get("quota_limit") || 0),
+          quota_auto_disable: form.get("quota_auto_disable") === "true",
+          expires_at: localInputToTs(form.get("expires_at")),
+          expire_auto_disable: form.get("expire_auto_disable") === "true",
           header_profile: parseOptionalJson(form.get("header_profile"), {}),
         };
         await api("/admin/accounts", { method: "POST", body: JSON.stringify(payload) });
@@ -585,15 +635,18 @@
     async function saveAccount(id) {
       const row = document.querySelector(`tr[data-id="${id}"]`);
       const payload = {};
-      for (const field of ["name", "priority", "weight", "concurrency", "proxy_url", "notes", "api_key"]) {
+      for (const field of ["name", "priority", "weight", "concurrency", "quota_limit", "proxy_url", "notes", "api_key"]) {
         const input = row.querySelector(`[data-field="${field}"]`);
         let value = input.value;
         if (field === "api_key" && !value.trim()) continue;
-        if (["priority", "weight", "concurrency"].includes(field)) value = Number(value);
+        if (["priority", "weight", "concurrency", "quota_limit"].includes(field)) value = Number(value || 0);
         if (["proxy_url", "notes"].includes(field)) value = value.trim() ? value : null;
         payload[field] = value;
       }
       try {
+        payload.quota_auto_disable = row.querySelector('[data-field="quota_auto_disable"]').value === "true";
+        payload.expires_at = localInputToTs(row.querySelector('[data-field="expires_at"]').value);
+        payload.expire_auto_disable = row.querySelector('[data-field="expire_auto_disable"]').value === "true";
         payload.header_profile = parseOptionalJson(row.querySelector('[data-field="header_profile"]').value, {});
         await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
         show(`账号 ${id} 已保存。`);
@@ -685,6 +738,8 @@
         concurrency: Number(document.getElementById("importConcurrency").value || 1),
         proxy_url: document.getElementById("importProxy").value.trim() || null,
         notes: document.getElementById("importNotes").value.trim() || null,
+        quota_limit: Number(document.getElementById("importQuotaLimit").value || 0),
+        quota_auto_disable: document.getElementById("importQuotaAutoDisable").value === "true",
         header_profile: {},
       };
       const logs = [];
