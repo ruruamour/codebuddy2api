@@ -1,1196 +1,1408 @@
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>CodeBuddy2API 管理面板</title>
-  <style>
+<!-- CodeBuddy2API 管理面板。单文件、零构建，随二进制 go:embed 一起走。 -->
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CodeBuddy2API 控制台</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --panel-2: #fbfbfd;
+    --line: #e3e6ec;
+    --line-soft: #eef0f4;
+    --ink: #16181d;
+    --ink-2: #5b6270;
+    --ink-3: #878e9c;
+    --accent: #3b6cf6;
+    --accent-ink: #ffffff;
+    --ok: #1b9e5a;
+    --warn: #c2820b;
+    --bad: #d64545;
+    --ok-bg: #e8f6ee;
+    --warn-bg: #fdf4e0;
+    --bad-bg: #fdecec;
+    --accent-bg: #eaf0ff;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
     :root {
-      color-scheme: dark;
-      --bg: #07111f;
-      --panel: #0f172a;
-      --panel-2: #111827;
-      --panel-3: #172033;
-      --text: #e5e7eb;
-      --muted: #94a3b8;
-      --line: #334155;
-      --ok: #22c55e;
-      --bad: #ef4444;
-      --warn: #f59e0b;
-      --accent: #38bdf8;
-      --purple: #a78bfa;
+      --bg: #14161a;
+      --panel: #1c1f25;
+      --panel-2: #21252c;
+      --line: #2c313a;
+      --line-soft: #262a31;
+      --ink: #e8eaee;
+      --ink-2: #a2aab8;
+      --ink-3: #79818f;
+      --accent: #6c93ff;
+      --accent-ink: #0d1015;
+      --ok: #4ec98a;
+      --warn: #e3ad46;
+      --bad: #f0736f;
+      --ok-bg: #172a20;
+      --warn-bg: #2d2716;
+      --bad-bg: #2e1d1d;
+      --accent-bg: #1b2440;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font: 14px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-      background:
-        radial-gradient(circle at 15% 0%, rgba(56,189,248,.18), transparent 34%),
-        radial-gradient(circle at 85% 10%, rgba(167,139,250,.15), transparent 30%),
-        var(--bg);
-      color: var(--text);
-    }
-    header {
-      padding: 24px 28px;
-      border-bottom: 1px solid rgba(148,163,184,.18);
-      background: rgba(15,23,42,.78);
-      backdrop-filter: blur(12px);
-      position: sticky;
-      top: 0;
-      z-index: 5;
-    }
-    h1 { margin: 0; font-size: 24px; letter-spacing: .02em; }
-    h2 { margin: 0 0 14px; font-size: 17px; }
-    h3 { margin: 0 0 10px; font-size: 15px; }
-    main { padding: 20px 24px 42px; max-width: 1560px; margin: 0 auto; }
-    section, .panel {
-      background: rgba(15,23,42,.92);
-      border: 1px solid rgba(148,163,184,.18);
-      border-radius: 16px;
-      padding: 16px;
-      margin-bottom: 16px;
-      box-shadow: 0 16px 42px rgba(0,0,0,.25);
-    }
-    .subhead { color: var(--muted); margin-top: 4px; }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-    .tab {
-      width: auto;
-      padding: 9px 14px;
-      background: #101c30;
-      border-color: var(--line);
-    }
-    .tab.active { background: #0369a1; border-color: #0ea5e9; }
-    .grid { display: grid; gap: 12px; }
-    .grid.stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-    .grid.form { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); align-items: end; }
-    .grid.two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
-    .card {
-      background: linear-gradient(180deg, rgba(30,41,59,.88), rgba(15,23,42,.88));
-      border: 1px solid rgba(148,163,184,.18);
-      border-radius: 13px;
-      padding: 13px;
-    }
-    .label { color: var(--muted); font-size: 12px; letter-spacing: .02em; }
-    .value { font-size: 22px; font-weight: 800; margin-top: 3px; }
-    input, textarea, select, button {
-      width: 100%;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: #07111f;
-      color: var(--text);
-      padding: 9px 10px;
-      font: inherit;
-      outline: none;
-    }
-    input[type="checkbox"] { width: auto; }
-    textarea { min-height: 74px; resize: vertical; }
-    input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(56,189,248,.12); }
-    button {
-      cursor: pointer;
-      background: #0ea5e9;
-      border-color: #0284c7;
-      color: white;
-      font-weight: 750;
-    }
-    button.secondary { background: #334155; border-color: #475569; }
-    button.ok { background: #16a34a; border-color: #15803d; }
-    button.bad { background: #dc2626; border-color: #b91c1c; }
-    button.warn { background: #d97706; border-color: #b45309; }
-    button.purple { background: #7c3aed; border-color: #6d28d9; }
-    button.ghost { background: transparent; border-color: var(--line); color: var(--text); }
-    button:disabled { opacity: .55; cursor: not-allowed; }
-    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-    .actions button { width: auto; min-width: 76px; }
-    .muted { color: var(--muted); }
-    .small { font-size: 12px; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-    .nowrap { white-space: nowrap; }
-    .hidden { display: none !important; }
-    .split { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
-    .split > label, .split > div.grow { flex: 1; min-width: 240px; }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      border-radius: 999px;
-      padding: 3px 9px;
-      background: #07111f;
-      border: 1px solid var(--line);
-      font-size: 12px;
-      white-space: nowrap;
-    }
-    .dot { width: 8px; height: 8px; border-radius: 999px; background: var(--muted); }
-    .status.active .dot { background: var(--ok); }
-    .status.disabled .dot { background: var(--bad); }
-    .status.cooldown .dot { background: var(--warn); }
-    .toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-    .toolbar .filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .toolbar input, .toolbar select { width: auto; min-width: 180px; }
-    .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(7,17,31,.7); }
-    table { width: 100%; border-collapse: collapse; min-width: 980px; }
-    th, td { padding: 10px; border-bottom: 1px solid rgba(148,163,184,.16); vertical-align: top; }
-    th { position: sticky; top: 0; background: #142033; text-align: left; z-index: 1; color: #cbd5e1; }
-    tr:last-child td { border-bottom: 0; }
-    tbody tr:hover { background: rgba(56,189,248,.05); }
-    td input { min-width: 78px; }
-    td input.inline-number {
-      width: 86px;
-      min-width: 0;
-      padding: 6px 8px;
-      border-radius: 8px;
-      text-align: right;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    }
-    td textarea { min-width: 170px; }
-    .row-title { font-weight: 800; color: #dbeafe; }
-    .row-sub { margin-top: 2px; color: var(--muted); font-size: 12px; }
-    .compact-table th, .compact-table td { vertical-align: middle; }
-    .compact-table .actions { gap: 6px; }
-    .compact-table .actions button { min-width: 56px; padding: 6px 10px; border-radius: 999px; }
-    .metric-line { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    .metric-line .pill { color: #cbd5e1; }
-    .credit-bar {
-      height: 7px;
-      min-width: 120px;
-      margin-top: 5px;
-      border-radius: 999px;
-      overflow: hidden;
-      background: rgba(148,163,184,.16);
-    }
-    .credit-bar > span {
-      display: block;
-      height: 100%;
-      width: 0%;
-      background: linear-gradient(90deg, #22c55e, #38bdf8);
-    }
-    .credit-bar.warn > span { background: linear-gradient(90deg, #f59e0b, #ef4444); }
-    details.advanced {
-      grid-column: 1 / -1;
-      border: 1px solid rgba(148,163,184,.18);
-      border-radius: 12px;
-      padding: 10px 12px;
-      background: rgba(7,17,31,.52);
-    }
-    details.advanced > summary { cursor: pointer; color: #cbd5e1; font-weight: 700; }
-    details.advanced .grid { margin-top: 12px; }
-    .modal {
-      position: fixed;
-      inset: 0;
-      z-index: 30;
-      padding: 24px;
-      background: rgba(2,6,23,.72);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    .modal-card {
-      width: min(1080px, 100%);
-      max-height: min(880px, 92vh);
-      overflow: auto;
-      background: #0f172a;
-      border: 1px solid rgba(148,163,184,.28);
-      border-radius: 18px;
-      box-shadow: 0 30px 90px rgba(0,0,0,.58);
-      padding: 18px;
-    }
-    .modal-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: flex-start;
-      margin-bottom: 14px;
-    }
-    .modal-head button { width: auto; min-width: 70px; }
-    .toast {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      max-width: 620px;
-      padding: 12px 14px;
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      background: #020617;
-      box-shadow: 0 16px 42px rgba(0,0,0,.42);
-      display: none;
-      white-space: pre-wrap;
-      z-index: 20;
-    }
-    .toast.show { display: block; }
-    .danger-zone { border-color: rgba(239,68,68,.35); }
-    .help {
-      border-left: 3px solid var(--accent);
-      padding: 10px 12px;
-      background: rgba(56,189,248,.08);
-      border-radius: 10px;
-    }
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      border: 1px solid var(--line);
-      background: #07111f;
-      border-radius: 999px;
-      padding: 2px 8px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-    @media (max-width: 760px) {
-      main { padding: 14px; }
-      header { padding: 18px; }
-      .actions button { width: 100%; }
-      .toolbar input, .toolbar select { width: 100%; }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>CodeBuddy2API 管理面板</h1>
-    <div class="subhead">账号池 / ck Key / 代理 / 并发 / 健康状态 / 上游额度消耗</div>
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  }
+  .mono { font-family: var(--mono); }
+  .wrap { max-width: 1360px; margin: 0 auto; padding: 20px 16px 64px; }
+
+  header.top {
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 14px;
+  }
+  header.top h1 { font-size: 19px; margin: 0; letter-spacing: -0.2px; }
+  header.top .sub { color: var(--ink-3); font-size: 12.5px; }
+  header.top .spacer { flex: 1; }
+
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tab {
+    appearance: none; border: 1px solid transparent; background: transparent;
+    color: var(--ink-2); padding: 7px 13px; border-radius: 8px;
+    font-size: 13.5px; cursor: pointer; font-family: inherit;
+  }
+  .tab:hover { background: var(--line-soft); color: var(--ink); }
+  .tab.active { background: var(--panel); border-color: var(--line); color: var(--ink); font-weight: 600; }
+
+  section {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 16px; margin-bottom: 14px;
+  }
+  .sec-head {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .sec-head h2 { font-size: 14.5px; margin: 0; font-weight: 650; }
+  .sec-head .spacer { flex: 1; }
+  .hint { color: var(--ink-3); font-size: 12.5px; margin: 0 0 10px; }
+
+  button, .btn {
+    appearance: none; font-family: inherit; font-size: 13px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+    padding: 6px 12px; border-radius: 7px; white-space: nowrap;
+  }
+  button:hover { border-color: var(--ink-3); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.06); }
+  button.danger { color: var(--bad); border-color: var(--line); }
+  button.danger:hover { border-color: var(--bad); background: var(--bad-bg); }
+  button.mini { padding: 3px 8px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  input, select, textarea {
+    font-family: inherit; font-size: 13px; width: 100%;
+    background: var(--panel-2); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: none; border-color: var(--accent);
+  }
+  textarea { min-height: 76px; resize: vertical; font-family: var(--mono); font-size: 12px; }
+  label .label { font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+  .grid { display: grid; gap: 11px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+  .grid .full { grid-column: 1 / -1; }
+  details.adv { grid-column: 1 / -1; margin-top: 2px; }
+  details.adv > summary {
+    cursor: pointer; color: var(--ink-2); font-size: 12.5px; padding: 4px 0;
+    user-select: none;
+  }
+  details.adv > div { padding-top: 10px; }
+  .picker {
+    display: flex; flex-wrap: wrap; gap: 6px;
+    max-height: 168px; overflow-y: auto;
+    padding: 8px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--panel-2);
+  }
+  .modelpick {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px 3px 6px; border: 1px solid var(--line); border-radius: 999px;
+    font-size: 12px; cursor: pointer; background: var(--panel); white-space: nowrap;
+  }
+  .modelpick:hover { border-color: var(--accent); }
+  .modelpick input { margin: 0; cursor: pointer; }
+  .modelpick:has(input:checked) {
+    border-color: var(--accent); background: var(--accent-bg); color: var(--accent);
+  }
+
+  .stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); }
+  .stat { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 10px 12px; }
+  .stat .k { font-size: 11.5px; color: var(--ink-3); }
+  .stat .v { font-size: 19px; font-weight: 640; margin-top: 2px; letter-spacing: -0.3px; }
+  .stat .v.small { font-size: 15px; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left; font-size: 11.5px; font-weight: 600; color: var(--ink-3);
+    padding: 7px 9px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  td { padding: 9px; border-bottom: 1px solid var(--line-soft); vertical-align: middle; }
+  tbody tr:hover { background: var(--panel-2); }
+  .scroll { overflow-x: auto; }
+
+  .badge {
+    display: inline-block; font-size: 11px; padding: 2px 7px; border-radius: 20px;
+    border: 1px solid var(--line); color: var(--ink-2); white-space: nowrap;
+  }
+  .badge.ok { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+  .badge.warn { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+  .badge.bad { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
+  .badge.accent { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+
+  .row-name { font-weight: 600; }
+  .row-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+  .cell-actions { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .toast {
+    position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: 440px;
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--ok);
+    border-radius: 8px; padding: 10px 14px; box-shadow: 0 8px 26px rgba(0,0,0,.16);
+    font-size: 13px; white-space: pre-wrap;
+  }
+  .toast.err { border-left-color: var(--bad); }
+  .hidden { display: none !important; }
+
+  dialog {
+    border: 1px solid var(--line); border-radius: 12px; background: var(--panel);
+    color: var(--ink); padding: 0; width: min(720px, calc(100vw - 32px));
+  }
+  dialog::backdrop { background: rgba(0,0,0,.45); }
+  dialog .dlg-head { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  dialog .dlg-head h3 { margin: 0; font-size: 15px; }
+  dialog .dlg-head .sub { font-size: 12px; color: var(--ink-3); margin-top: 3px; }
+  dialog .dlg-body { padding: 16px; max-height: 66vh; overflow-y: auto; }
+  dialog .dlg-foot {
+    padding: 12px 16px; border-top: 1px solid var(--line);
+    display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;
+  }
+  .diag-line { display: flex; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); }
+  .diag-line:last-child { border-bottom: 0; }
+  .diag-line .dk { width: 88px; color: var(--ink-2); font-size: 12.5px; flex-shrink: 0; }
+  .diag-line .dv { flex: 1; font-size: 12.5px; }
+
+  code.inline {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+    border: 1px solid var(--line-soft); border-radius: 5px; padding: 1px 5px;
+  }
+  pre.block {
+    font-family: var(--mono); font-size: 12px; background: var(--panel-2);
+    border: 1px solid var(--line-soft); border-radius: 8px; padding: 11px;
+    overflow-x: auto; margin: 0;
+  }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; font-size: 12.5px; }
+  .kv dt { color: var(--ink-3); }
+  .kv dd { margin: 0; }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <h1>CodeBuddy2API</h1>
+    <span class="sub" id="instanceSub">控制台</span>
+    <span class="spacer"></span>
+    <button type="button" onclick="refreshAll()">刷新</button>
   </header>
 
-  <main>
-    <nav class="tabs">
-      <button class="tab active" data-tab="overview" type="button">总览</button>
-      <button class="tab" data-tab="accounts" type="button">账号与 Key</button>
-      <button class="tab" data-tab="import" type="button">批量导入</button>
-      <button class="tab" data-tab="settings" type="button">接入设置</button>
-    </nav>
-
-    <section>
-      <h2>管理口令</h2>
-      <div class="split">
-        <label>
-          <div class="label">Admin Key</div>
-          <input id="adminKey" type="password" autocomplete="off" placeholder="填写 CODEBUDDY2API_ADMIN_KEY" />
-        </label>
-        <button id="saveKey" class="secondary" type="button">保存</button>
-        <button id="clearKey" class="ghost" type="button">清除</button>
-        <button id="refresh" type="button">刷新数据</button>
-        <button id="refreshCredits" class="secondary" type="button">刷新余额</button>
-      </div>
-      <div class="muted small">通过 Cloudflare Access 登录时可直接管理；也可以手动填写 Admin Key，保存后请求 Admin API 时作为 Authorization: Bearer 发送。服务端不会把完整 ck Key 返回到页面。</div>
-    </section>
-
-    <div id="tab-overview">
-      <section>
-        <div class="toolbar">
-          <h2>运行总览</h2>
-          <span id="lastRefresh" class="pill">尚未刷新</span>
-        </div>
-        <div id="stats" class="grid stats"></div>
-      </section>
-      <section>
-        <h2>最近异常账号</h2>
-        <div id="problemAccounts" class="grid two"></div>
-      </section>
+  <section id="authSection">
+    <div class="sec-head"><h2>管理口令</h2></div>
+    <p class="hint" id="authHint">口令只存在浏览器本地（localStorage），用于调用 /admin 接口。</p>
+    <div class="grid">
+      <label><div class="label">Admin Key</div>
+        <input id="adminKey" type="password" placeholder="CODEBUDDY2API_ADMIN_KEY" />
+      </label>
+      <label><div class="label">&nbsp;</div>
+        <button class="primary" type="button" onclick="saveKey()">保存并加载</button>
+      </label>
     </div>
+  </section>
 
-    <div id="tab-accounts" class="hidden">
-      <section>
-        <div class="toolbar">
-          <h2>Credits 概览</h2>
-          <span class="pill">基于上游响应 usage.credit 累计；设置额度上限后可计算剩余</span>
-        </div>
-        <div id="accountCredits" class="grid stats"></div>
-      </section>
-
-      <section>
-        <h2>快速新增账号</h2>
-        <form id="addForm" class="grid form">
-          <label><div class="label">账号名称</div><input name="name" value="CodeBuddy 账号" required /></label>
-          <label><div class="label">ck Key</div><input name="api_key" type="text" placeholder="ck_..." required /></label>
-          <label><div class="label">是否启用</div><select name="enabled"><option value="true">启用</option><option value="false">停用</option></select></label>
-          <label><div class="label">额度上限 credit</div><input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
-          <label><div class="label">备注</div><input name="notes" placeholder="用途、来源、手机号、批次等" /></label>
-          <button type="submit">添加账号</button>
-          <details class="advanced">
-            <summary>高级配置</summary>
-            <div class="grid form">
-          <label><div class="label">优先级</div><input name="priority" type="number" value="100" /></label>
-          <label><div class="label">权重</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
-          <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
-          <label><div class="label">绑定代理</div><input name="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
-          <label><div class="label">到额度自动暂停</div><select name="quota_auto_disable"><option value="true" selected>开启</option><option value="false">关闭</option></select></label>
-          <label><div class="label">过期时间</div><input name="expires_at" type="datetime-local" /></label>
-          <label><div class="label">过期自动暂停</div><select name="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
-          <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea name="header_profile" placeholder='{"user_agent":"CLI/1.0.8 CodeBuddy/1.0.8","machine_id":"..."}'></textarea></label>
-            </div>
-          </details>
-        </form>
-      </section>
-
-      <section>
-        <div class="toolbar">
-          <h2>账号池</h2>
-          <div class="filters">
-            <input id="search" placeholder="搜索名称 / key 预览 / 备注 / 错误" />
-            <select id="statusFilter">
-              <option value="all">全部状态</option>
-              <option value="active">仅 active</option>
-              <option value="cooldown">仅 cooldown</option>
-              <option value="disabled">仅 disabled</option>
-            </select>
-            <button id="refreshAccounts" class="secondary" type="button">刷新</button>
-          </div>
-        </div>
-        <div class="actions" style="margin-bottom: 12px;">
-          <button id="bulkEnable" class="ok" type="button">批量启用</button>
-          <button id="bulkDisable" class="bad" type="button">批量停用</button>
-          <button id="bulkProbe" class="secondary" type="button">批量探测</button>
-          <button id="bulkReset" class="warn" type="button">批量清冷却</button>
-        </div>
-        <div id="accounts"></div>
-      </section>
-    </div>
-
-    <div id="tab-import" class="hidden">
-      <section>
-        <h2>批量导入 ck Key</h2>
-        <div class="help small">
-          每行一种格式：<span class="mono">ck_xxx</span> 或 <span class="mono">账号名,ck_xxx</span> 或 <span class="mono">账号名\tck_xxx</span>。
-          默认会按下方参数创建账号；完整 Key 只写入服务端 SQLite，不会再从接口返回。
-        </div>
-        <div class="grid form" style="margin-top: 12px;">
-          <label><div class="label">默认优先级</div><input id="importPriority" type="number" value="100" /></label>
-          <label><div class="label">默认权重</div><input id="importWeight" type="number" min="1" max="100" value="1" /></label>
-          <label><div class="label">默认并发</div><input id="importConcurrency" type="number" min="1" max="100" value="1" /></label>
-          <label><div class="label">默认代理</div><input id="importProxy" placeholder="可空" /></label>
-          <label><div class="label">默认备注</div><input id="importNotes" placeholder="批次说明，可空" /></label>
-          <label><div class="label">导入后状态</div><select id="importEnabled"><option value="true">启用</option><option value="false">停用</option></select></label>
-          <label><div class="label">默认额度上限 credit</div><input id="importQuotaLimit" type="number" min="0" step="0.000001" placeholder="0 表示不限" /></label>
-          <label><div class="label">到额度自动暂停</div><select id="importQuotaAutoDisable"><option value="true" selected>开启</option><option value="false">关闭</option></select></label>
-        </div>
-        <label style="display:block; margin-top: 12px;">
-          <div class="label">批量内容</div>
-          <textarea id="bulkKeys" style="min-height: 220px;" placeholder="ck_xxx&#10;codebuddy-02,ck_xxx&#10;codebuddy-03&#9;ck_xxx"></textarea>
-        </label>
-        <div class="actions" style="margin-top: 12px;">
-          <button id="previewImport" class="secondary" type="button">预览解析</button>
-          <button id="runImport" type="button">开始导入</button>
-        </div>
-        <pre id="importResult" class="panel mono small" style="white-space: pre-wrap; display: none;"></pre>
-      </section>
-    </div>
-
-    <div id="tab-settings" class="hidden">
-      <section>
-        <h2>全局模型配置</h2>
-        <div class="help small">
-          这里控制对外 <span class="mono">/v1/models</span> 暴露哪些模型，以及 <span class="mono">/v1/chat/completions</span> 允许调用哪些模型。未带 model 时会使用默认模型。
-        </div>
-        <div class="grid two" style="margin-top: 12px;">
-          <label>
-            <div class="label">允许模型列表（每行一个，或逗号分隔）</div>
-            <textarea id="modelsText" style="min-height: 150px;" placeholder="glm-5.1&#10;minimax-m2.7&#10;kimi-k2.6"></textarea>
-          </label>
-          <div>
-            <label>
-              <div class="label">默认模型</div>
-              <input id="defaultModel" placeholder="glm-5.1" />
-            </label>
-            <label>
-              <div class="label">账号池调度策略</div>
-              <select id="poolStrategy">
-                <option value="round-robin">轮询：同优先级按权重均摊</option>
-                <option value="fill-first">填充：先用满前面的账号</option>
-              </select>
-            </label>
-            <div id="poolStrategyHelp" class="muted small" style="margin-top: 8px;"></div>
-            <div class="actions" style="margin-top: 12px;">
-              <button id="saveModels" type="button">保存配置</button>
-            </div>
-            <div class="muted small" style="margin-top: 10px;">默认模型必须在允许模型列表内；保存后立即影响模型列表、账号池调度和新请求。</div>
-          </div>
-        </div>
-        <h3 style="margin-top: 16px;">CodeBuddy 已知模型</h3>
-        <div id="modelCatalog" class="grid two"></div>
-      </section>
-      <section>
-        <h2>接入说明</h2>
-        <div class="grid two">
-          <div class="card">
-            <h3>管理 Key</h3>
-            <p class="muted">Admin Key / 对外 API Key 仍建议保留在服务器 env 中管理，不在网页里直接改，避免误操作把自己锁出管理面。</p>
-            <p class="muted">这个页面管理的是 CodeBuddy 上游账号 ck Key、并发、代理、健康状态和消耗统计。</p>
-          </div>
-          <div class="card">
-            <h3>sub2api 接入</h3>
-            <p class="muted mono">base_url = http://127.0.0.1:18182</p>
-            <p class="muted mono">model = glm-5.1 / minimax-m2.7 / kimi-k2.6</p>
-            <p class="muted">sub2api 继续按站内模型价格计费；这里记录上游真实 usage.credit 方便对账。</p>
-          </div>
-          <div class="card">
-            <h3>Credits 查询</h3>
-            <p class="muted">目前未发现 CodeBuddy Key 形态公开稳定的余额查询接口。面板里的 credit 使用量来自每次上游响应尾包 <span class="mono">usage.credit</span> 累计，这是当前不会额外消耗额度且最稳定的口径。</p>
-            <p class="muted">如果后续确认了官方 credits/balance endpoint，可以接到这里作为“真实余额同步”。</p>
-          </div>
-        </div>
-      </section>
-      <section class="danger-zone">
-        <h2>危险操作说明</h2>
-        <p class="muted">删除账号会从本服务 SQLite 删除该 ck Key 记录及其累计统计。建议先停用观察，再删除。</p>
-        <p class="muted">轮换 Key：在账号表格的“新 ck Key”输入框填新 key 后保存；留空表示不修改原 key。</p>
-      </section>
-    </div>
-  </main>
-  <div id="toast" class="toast"></div>
-  <div id="editModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="editTitle">
-    <div class="modal-card">
-      <div class="modal-head">
-        <div>
-          <h2 id="editTitle">编辑账号</h2>
-          <div id="editSubtitle" class="muted small mono"></div>
-        </div>
-        <button id="editClose" class="ghost" type="button">关闭</button>
-      </div>
-      <form id="editForm" class="grid form">
-        <label><div class="label">账号名称</div><input data-edit-field="name" required /></label>
-        <label><div class="label">新 ck Key（留空不改）</div><input data-edit-field="api_key" type="password" placeholder="ck_..." /></label>
-        <label><div class="label">优先级</div><input data-edit-field="priority" type="number" /></label>
-        <label><div class="label">权重</div><input data-edit-field="weight" type="number" min="1" max="100" /></label>
-        <label><div class="label">并发上限</div><input data-edit-field="concurrency" type="number" min="1" max="100" /></label>
-        <label><div class="label">额度上限 credit</div><input data-edit-field="quota_limit" type="number" min="0" step="0.000001" /></label>
-        <label><div class="label">到额度自动暂停</div><select data-edit-field="quota_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
-        <label><div class="label">过期时间</div><input data-edit-field="expires_at" type="datetime-local" /></label>
-        <label><div class="label">过期自动暂停</div><select data-edit-field="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select></label>
-        <label><div class="label">绑定代理</div><input data-edit-field="proxy_url" placeholder="http://... / socks5://...，可空" /></label>
-        <label style="grid-column: 1 / -1;"><div class="label">备注</div><textarea data-edit-field="notes"></textarea></label>
-        <label style="grid-column: 1 / -1;"><div class="label">请求头 Profile JSON</div><textarea data-edit-field="header_profile" style="min-height: 120px;"></textarea></label>
-        <div class="actions" style="grid-column: 1 / -1;">
-          <button id="editSave" type="submit">保存</button>
-          <button id="editReset" class="warn" type="button">清冷却</button>
-          <button id="editProbe" class="secondary" type="button">探测</button>
-          <button id="editDelete" class="bad" type="button">删除</button>
-        </div>
-      </form>
-    </div>
+  <div class="tabs">
+    <button class="tab active" data-tab="overview" type="button">总览</button>
+    <button class="tab" data-tab="accounts" type="button">账号池</button>
+    <button class="tab" data-tab="channels" type="button">渠道与模型</button>
+    <button class="tab" data-tab="import" type="button">导入导出</button>
+    <button class="tab" data-tab="settings" type="button">接入设置</button>
   </div>
 
-  <script>
-    const state = { accounts: [], stats: null, settings: null, editingId: null };
-    const keyInput = document.getElementById("adminKey");
-    const toast = document.getElementById("toast");
-    keyInput.value = localStorage.getItem("codebuddy2api.adminKey") || "";
+  <!-- ── 总览 ───────────────────────────────────────────── -->
+  <div id="tab-overview">
+    <section>
+      <div class="sec-head"><h2>运行总览</h2></div>
+      <div class="stats" id="statsBox"></div>
+    </section>
+    <section>
+      <div class="sec-head">
+        <h2>积分余额</h2><span class="spacer"></span>
+        <button type="button" onclick="refreshCredits()">刷新余额</button>
+      </div>
+      <div class="stats" id="creditsBox"></div>
+      <p class="hint" style="margin-top:10px">
+        免费模型（如 <code class="inline">deepseek-v4.1-flash</code>）不计费，打多少余额都不动。
+      </p>
+    </section>
+    <section>
+      <div class="sec-head"><h2>需要关注的账号</h2></div>
+      <div id="problemBox"></div>
+    </section>
+  </div>
 
-    document.querySelectorAll(".tab").forEach((button) => {
-      button.addEventListener("click", () => switchTab(button.dataset.tab));
-    });
-    document.getElementById("saveKey").addEventListener("click", () => {
-      localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-      show("已保存。");
-    });
-    document.getElementById("clearKey").addEventListener("click", () => {
-      localStorage.removeItem("codebuddy2api.adminKey");
-      keyInput.value = "";
-      show("已清除本地保存的管理口令。");
-    });
-    document.getElementById("refresh").addEventListener("click", refreshAll);
-    document.getElementById("refreshCredits").addEventListener("click", refreshCredits);
-    document.getElementById("refreshAccounts").addEventListener("click", refreshAll);
-    document.getElementById("addForm").addEventListener("submit", addAccount);
-    document.getElementById("search").addEventListener("input", renderAccounts);
-    document.getElementById("statusFilter").addEventListener("change", renderAccounts);
-    document.getElementById("previewImport").addEventListener("click", previewImport);
-    document.getElementById("runImport").addEventListener("click", runImport);
-    document.getElementById("saveModels").addEventListener("click", saveModelSettings);
-    document.getElementById("poolStrategy").addEventListener("change", renderPoolStrategyHelp);
-    document.getElementById("bulkEnable").addEventListener("click", () => bulkSetEnabled(true));
-    document.getElementById("bulkDisable").addEventListener("click", () => bulkSetEnabled(false));
-    document.getElementById("bulkProbe").addEventListener("click", bulkProbe);
-    document.getElementById("bulkReset").addEventListener("click", bulkReset);
-    document.getElementById("editClose").addEventListener("click", closeEdit);
-    document.getElementById("editModal").addEventListener("click", (event) => {
-      if (event.target.id === "editModal") closeEdit();
-    });
-    document.getElementById("editForm").addEventListener("submit", saveEdit);
-    document.getElementById("editReset").addEventListener("click", () => {
-      if (state.editingId) resetFailures(state.editingId);
-    });
-    document.getElementById("editProbe").addEventListener("click", () => {
-      if (state.editingId) probe(state.editingId);
-    });
-    document.getElementById("editDelete").addEventListener("click", () => {
-      const account = state.accounts.find((item) => item.id === state.editingId);
-      if (account) deleteAccount(account.id, account.name);
-    });
-
-    function switchTab(name) {
-      document.querySelectorAll(".tab").forEach((button) => button.classList.toggle("active", button.dataset.tab === name));
-      for (const item of ["overview", "accounts", "import", "settings"]) {
-        document.getElementById(`tab-${item}`).classList.toggle("hidden", item !== name);
-      }
-    }
-
-    function authHeaders() {
-      const token = keyInput.value.trim();
-      return token ? { "Authorization": `Bearer ${token}` } : {};
-    }
-
-    async function api(path, options = {}) {
-      const headers = {
-        "Content-Type": "application/json",
-        ...authHeaders(),
-        ...(options.headers || {}),
-      };
-      const res = await fetch(path, { ...options, headers });
-      const text = await res.text();
-      let body = null;
-      try { body = text ? JSON.parse(text) : null; } catch (_) { body = text; }
-      if (!res.ok) {
-        const detail = body && body.detail ? body.detail : body && body.error ? body.error.message : text;
-        throw new Error(`${res.status} ${res.statusText}: ${detail || "请求失败"}`);
-      }
-      return body;
-    }
-
-    function parseOptionalJson(raw, fallback) {
-      const value = (raw || "").trim();
-      if (!value) return fallback;
-      return JSON.parse(value);
-    }
-
-    function show(message, isError = false) {
-      toast.textContent = message;
-      toast.style.borderColor = isError ? "#ef4444" : "#22c55e";
-      toast.classList.add("show");
-      clearTimeout(window.__toastTimer);
-      window.__toastTimer = setTimeout(() => toast.classList.remove("show"), 5200);
-    }
-
-    function fmt(value) {
-      if (value === null || value === undefined || value === "") return "-";
-      if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
-      return String(value);
-    }
-
-    function time(ts) {
-      if (!ts) return "-";
-      return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
-    }
-
-    function tsToLocalInput(ts) {
-      if (!ts) return "";
-      const d = new Date(ts * 1000);
-      const pad = (n) => String(n).padStart(2, "0");
-      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-    }
-
-    function localInputToTs(value) {
-      if (!value) return 0;
-      const t = new Date(value).getTime();
-      if (!Number.isFinite(t)) return 0;
-      return Math.floor(t / 1000);
-    }
-
-    function escapeHtml(value) {
-      return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#39;",
-      }[ch]));
-    }
-
-    function truncateText(value, max) {
-      const text = String(value ?? "");
-      return text.length > max ? `${text.slice(0, max)}...` : text;
-    }
-
-    function checkedIds() {
-      return Array.from(document.querySelectorAll(".account-check:checked")).map((item) => Number(item.value));
-    }
-
-    async function refreshAll() {
-      try {
-        localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-        const [stats, accounts, settings] = await Promise.all([
-          api("/admin/stats"),
-          api("/admin/accounts"),
-          api("/admin/settings"),
-        ]);
-        state.stats = stats;
-        state.accounts = accounts.accounts || [];
-        state.settings = settings;
-        renderStats();
-        renderSettings();
-        renderCredits();
-        renderProblemAccounts();
-        renderAccounts();
-        document.getElementById("lastRefresh").textContent = `最后刷新：${new Date().toLocaleString("zh-CN", { hour12: false })}`;
-      } catch (err) {
-        document.getElementById("accounts").innerHTML = '<div class="help small">账号列表未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key 后点击“刷新数据”。</div>';
-        document.getElementById("stats").innerHTML = '<div class="help small">统计未加载。请确认已通过 Cloudflare Access 登录，或填写 Admin Key。</div>';
-        document.getElementById("accountCredits").innerHTML = '<div class="help small">Credits 概览未加载。</div>';
-        document.getElementById("modelCatalog").innerHTML = '<div class="help small">模型配置未加载。</div>';
-        show(err.message, true);
-      }
-    }
-
-    // 拉官方计费接口的真实积分余额（不消耗积分），余额过低会暂停账号
-    async function refreshCredits() {
-      const button = document.getElementById("refreshCredits");
-      button.disabled = true;
-      const original = button.textContent;
-      button.textContent = "查询中…";
-      try {
-        localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
-        const res = await api("/admin/credits/refresh", { method: "POST" });
-        state.accounts = res.accounts || state.accounts;
-        renderStats();
-        renderCredits();
-        renderProblemAccounts();
-        renderAccounts();
-        const s = res.summary || {};
-        show(`余额已刷新：${s.checked || 0} 个成功${s.failed ? `，${s.failed} 个失败` : ""}`
-          + `${s.paused ? `，暂停 ${s.paused} 个` : ""}${s.resumed ? `，恢复 ${s.resumed} 个` : ""}`
-          + `，剩余合计 ${fmt(s.total_remain)} 积分`);
-      } catch (err) {
-        show(err.message, true);
-      } finally {
-        button.disabled = false;
-        button.textContent = original;
-      }
-    }
-
-    function splitModelsText(value) {
-      return String(value || "")
-        .split(/[\n,\t\r]+/)
-        .map((item) => item.trim())
-        .filter(Boolean);
-    }
-
-    function addCatalogModel(id) {
-      const input = document.getElementById("modelsText");
-      const models = splitModelsText(input.value);
-      if (!models.includes(id)) {
-        models.push(id);
-        input.value = models.join("\n");
-      }
-      if (!document.getElementById("defaultModel").value.trim()) {
-        document.getElementById("defaultModel").value = models[0] || id;
-      }
-    }
-
-    function renderSettings() {
-      const settings = state.settings || {};
-      const models = settings.models || [];
-      document.getElementById("modelsText").value = models.join("\n");
-      document.getElementById("defaultModel").value = settings.default_model || models[0] || "";
-      const strategySelect = document.getElementById("poolStrategy");
-      const strategies = settings.pool_strategies || [
-        { id: "round-robin", name: "轮询", description: "按优先级分层；同优先级内按权重轮询，适合均摊账号消耗。" },
-        { id: "fill-first", name: "填充", description: "按优先级、权重、ID 顺序填满前面的账号；适合先吃完一个账号额度再切下一个。" },
-      ];
-      strategySelect.innerHTML = strategies.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}：${escapeHtml(item.description)}</option>`).join("");
-      strategySelect.value = settings.pool_strategy || "round-robin";
-      renderPoolStrategyHelp();
-      const catalog = settings.model_catalog || [];
-      const enabled = new Set(models);
-      document.getElementById("modelCatalog").innerHTML = catalog.map((model) => `
-        <div class="card">
-          <div class="actions" style="justify-content: space-between;">
-            <strong class="mono">${escapeHtml(model.id)}</strong>
-            <button class="${enabled.has(model.id) ? "secondary" : "ghost"}" type="button" onclick="addCatalogModel('${escapeHtml(model.id)}')">${enabled.has(model.id) ? "已添加" : "添加"}</button>
+  <!-- ── 账号池 ─────────────────────────────────────────── -->
+  <div id="tab-accounts" class="hidden">
+    <section>
+      <div class="sec-head"><h2>新增账号</h2></div>
+      <p class="hint">
+        粘 <code class="inline">ck_</code> 订阅 key 或 OAuth access token 都行——类型会自动识别。
+        选一个接入预设即可填好上游配置。
+      </p>
+      <form id="addForm" class="grid" onsubmit="addAccount(event)">
+        <label class="full"><div class="label">账号类型（渠道）</div>
+          <select name="type_slug" id="addTypeSelect" onchange="onTypePicked(this.value)">
+            <option value="">自动识别</option>
+          </select>
+          <div class="row-sub" id="typeHint">上游、认证方式、能打哪些模型都由类型决定</div>
+        </label>
+        <label><div class="label">账号名称</div>
+          <input name="name" value="CodeBuddy 账号" required />
+        </label>
+        <label class="full"><div class="label">凭证（ck_ key 或 access token）</div>
+          <input name="api_key" type="password" placeholder="ck_... 或 eyJ..." required
+                 oninput="onCredentialInput(this.value)" />
+          <div class="row-sub" id="credHint">&nbsp;</div>
+        </label>
+        <label class="full"><div class="label">
+            Refresh Token<span id="rtNeed" class="hidden"> · OAuth 凭证强烈建议填</span>
           </div>
-          <div class="muted">${escapeHtml(model.name || model.id)}</div>
-          <div class="small muted">系数：<span class="mono">${escapeHtml(model.credits || "-")}</span></div>
-          <div class="small muted">上下文：${escapeHtml(fmt(model.max_input_tokens))} in / ${escapeHtml(fmt(model.max_output_tokens))} out${model.supports_images ? "，支持图片" : ""}</div>
-        </div>
-      `).join("");
-    }
+          <input name="refresh_token" type="password" placeholder="eyJ... 留空则到期后无法自动续期" />
+        </label>
+        <label><div class="label">是否启用</div>
+          <select name="enabled"><option value="true">启用</option><option value="false">停用</option></select>
+        </label>
+        <label><div class="label">绑定代理</div>
+          <input name="proxy_url" placeholder="http:// / socks5://，可空" />
+        </label>
+        <label><div class="label">备注</div>
+          <input name="notes" placeholder="来源、批次等" />
+        </label>
 
-    function renderPoolStrategyHelp() {
-      const settings = state.settings || {};
-      const strategies = settings.pool_strategies || [];
-      const value = document.getElementById("poolStrategy").value || "round-robin";
-      const item = strategies.find((entry) => entry.id === value);
-      const fallback = value === "fill-first"
-        ? "填充模式会一直选择当前最高优先级、最高权重、最小 ID 的可用账号，直到它忙满、到额度自动暂停、过期或失败冷却。"
-        : "轮询模式会在最高优先级账号内按权重轮询，账号忙满后才切到同层或下一层账号。";
-      document.getElementById("poolStrategyHelp").textContent = item ? item.description : fallback;
-    }
-
-    async function saveModelSettings() {
-      const models = splitModelsText(document.getElementById("modelsText").value);
-      if (!models.length) return show("至少保留一个模型。", true);
-      const defaultModel = document.getElementById("defaultModel").value.trim() || models[0];
-      if (!models.includes(defaultModel)) return show("默认模型必须在允许模型列表内。", true);
-      const poolStrategy = document.getElementById("poolStrategy").value || "round-robin";
-      try {
-        const settings = await api("/admin/settings", {
-          method: "PATCH",
-          body: JSON.stringify({ models, default_model: defaultModel, pool_strategy: poolStrategy }),
-        });
-        state.settings = settings;
-        renderSettings();
-        show("配置已保存。");
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    function creditSummary() {
-      const limited = state.accounts.filter((a) => Number(a.quota_limit || 0) > 0);
-      const totalQuota = limited.reduce((sum, a) => sum + Number(a.quota_limit || 0), 0);
-      const usedLimited = limited.reduce((sum, a) => sum + Number(a.total_credit || 0), 0);
-      const remaining = limited.reduce((sum, a) => sum + Math.max(Number(a.quota_limit || 0) - Number(a.total_credit || 0), 0), 0);
-      const usedAll = state.accounts.reduce((sum, a) => sum + Number(a.total_credit || 0), 0);
-      const exhausted = limited.filter((a) => a.quota_exceeded).length;
-      return {
-        totalQuota,
-        usedLimited,
-        remaining,
-        usedAll,
-        limitedAccounts: limited.length,
-        unlimitedAccounts: state.accounts.length - limited.length,
-        exhausted,
-      };
-    }
-
-    // 官方计费接口查到的真实剩余积分合计（未查到的不计）
-    function realRemain() {
-      return state.accounts
-        .filter((a) => a.credits_remaining !== null && a.credits_remaining !== undefined)
-        .reduce((sum, a) => sum + Number(a.credits_remaining || 0), 0);
-    }
-
-    function renderStats() {
-      const stats = state.stats || {};
-      const credits = creditSummary();
-      const items = [
-        ["账号总数", stats.accounts],
-        ["启用账号", stats.enabled_accounts],
-        ["真实剩余积分", realRemain()],
-        ["配置总额度", credits.totalQuota],
-        ["配置剩余额度", credits.remaining],
-        ["总请求", stats.total_requests],
-        ["成功", stats.total_success],
-        ["失败", stats.total_failures],
-        ["上游 credit", stats.total_credit],
-        ["输入 tokens", stats.prompt_tokens],
-        ["输出 tokens", stats.completion_tokens],
-        ["总 tokens", stats.total_tokens],
-      ];
-      document.getElementById("stats").innerHTML = items.map(([label, value]) => `
-        <div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(fmt(value))}</div></div>
-      `).join("");
-    }
-
-    function renderCredits() {
-      const credits = creditSummary();
-      const known = state.accounts.filter((a) => a.credits_remaining !== null && a.credits_remaining !== undefined);
-      const lastChecked = known.reduce((max, a) => Math.max(max, Number(a.credits_checked_at || 0)), 0);
-      const items = [
-        ["真实剩余积分", realRemain()],
-        ["真实包总量（生效中）", known.reduce((sum, a) => sum + Number(a.credits_total || 0), 0)],
-        ["已查余额账号", `${known.length} / ${state.accounts.length}`],
-        ["余额触发暂停", state.accounts.filter((a) => a.credits_paused).length],
-        ["余额最近查询", lastChecked ? time(lastChecked) : "-"],
-        ["配置总额度", credits.totalQuota],
-        ["已用额度（有限额账号）", credits.usedLimited],
-        ["配置剩余额度", credits.remaining],
-        ["全部已用 credit", credits.usedAll],
-        ["设置额度账号", credits.limitedAccounts],
-        ["不限额账号", credits.unlimitedAccounts],
-        ["已超额账号", credits.exhausted],
-      ];
-      document.getElementById("accountCredits").innerHTML = items.map(([label, value]) => `
-        <div class="card"><div class="label">${escapeHtml(label)}</div><div class="value">${escapeHtml(fmt(value))}</div></div>
-      `).join("");
-    }
-
-    function renderProblemAccounts() {
-      const accounts = state.accounts
-        .filter((a) => !a.enabled || a.status !== "active" || a.last_error)
-        .slice(0, 8);
-      const box = document.getElementById("problemAccounts");
-      if (!accounts.length) {
-        box.innerHTML = '<div class="muted">暂无异常账号。</div>';
-        return;
-      }
-      box.innerHTML = accounts.map((a) => `
-        <div class="card">
-          <div class="actions" style="justify-content: space-between;">
-            <strong>${escapeHtml(a.name)}</strong>
-            ${statusBadge(a)}
+        <details class="adv">
+          <summary>上游与高级配置</summary>
+          <div class="grid">
+            <label><div class="label">认证方式</div>
+              <select name="auth_mode">
+                <option value="">自动识别</option>
+                <option value="api_key">X-Api-Key（ck_）</option>
+                <option value="bearer">Bearer（OAuth）</option>
+              </select>
+            </label>
+            <label><div class="label">请求整形</div>
+              <select name="request_shape">
+                <option value="">跟随类型</option>
+                <option value="cn">cn 透传</option>
+                <option value="intl">intl 整形</option>
+              </select>
+            </label>
+            <label class="full"><div class="label">承接模型（覆盖类型）</div>
+              <input name="models" placeholder="留空＝跟随类型，逗号分隔" />
+            </label>
+            <label class="full"><div class="label">上游地址</div>
+              <input name="upstream_url" placeholder="留空跟随类型" />
+            </label>
+            <label><div class="label">X-Domain</div>
+              <input name="domain" placeholder="留空按上游主机推导" />
+            </label>
+            <label><div class="label">额度上限 credit</div>
+              <input name="quota_limit" type="number" min="0" step="0.000001" placeholder="0 = 不限" />
+            </label>
+            <label><div class="label">优先级</div><input name="priority" type="number" value="100" /></label>
+            <label><div class="label">权重</div><input name="weight" type="number" min="1" max="100" value="1" /></label>
+            <label><div class="label">并发上限</div><input name="concurrency" type="number" min="1" max="100" value="1" /></label>
+            <label><div class="label">到额度自动暂停</div>
+              <select name="quota_auto_disable"><option value="true" selected>开启</option><option value="false">关闭</option></select>
+            </label>
+            <label><div class="label">过期时间</div><input name="expires_at" type="datetime-local" /></label>
+            <label><div class="label">过期自动暂停</div>
+              <select name="expire_auto_disable"><option value="false">关闭</option><option value="true">开启</option></select>
+            </label>
+            <label class="full"><div class="label">请求头 Profile JSON（覆盖指纹字段）</div>
+              <textarea name="header_profile" placeholder='{"cli_version":"2.149.0","extra_headers":{}}'></textarea>
+            </label>
           </div>
-          <div class="small muted mono">${escapeHtml(a.api_key_preview || "-")}</div>
-          <div class="small">失败：${escapeHtml(fmt(a.total_failures))}，连续失败：${escapeHtml(fmt(a.consecutive_failures))}</div>
-          <div class="small">暂停原因：${escapeHtml(disableReasonText(a.last_disable_reason))}</div>
-          <div class="small muted">${escapeHtml(a.last_error || "无错误摘要")}</div>
+        </details>
+        <div class="full"><button class="primary" type="submit">添加账号</button></div>
+      </form>
+    </section>
+
+    <section>
+      <div class="sec-head">
+        <h2>账号池</h2>
+        <span class="badge" id="poolCount">0</span>
+        <span class="spacer"></span>
+        <input id="filterBox" placeholder="搜索名称 / 备注 / 模型" style="width:200px" oninput="renderAccounts()" />
+        <select id="statusFilter" style="width:auto" onchange="renderAccounts()">
+          <option value="">全部状态</option>
+          <option value="active">正常</option>
+          <option value="cooldown">冷却</option>
+          <option value="disabled">停用</option>
+        </select>
+      </div>
+      <div class="sec-head" style="margin-bottom:8px">
+        <button class="mini" type="button" onclick="bulkSetEnabled(true)">批量启用</button>
+        <button class="mini" type="button" onclick="bulkSetEnabled(false)">批量停用</button>
+        <button class="mini" type="button" onclick="bulkProbe()">批量探活</button>
+        <button class="mini" type="button" onclick="bulkReset()">批量清故障</button>
+      </div>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:28px"><input type="checkbox" id="checkAll" onchange="toggleAll(this.checked)" style="width:auto" /></th>
+              <th>账号</th><th>类型 / 路由</th><th>状态</th>
+              <th class="num">余额</th><th class="num">请求</th>
+              <th>凭证</th><th>代理</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="accountRows"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ── 导入导出 ───────────────────────────────────────── -->
+  <div id="tab-channels" class="hidden">
+    <section>
+      <div class="sec-head">
+        <h2>账号类型（渠道）</h2>
+        <span class="badge" id="typeCount">0</span>
+      </div>
+      <p class="hint">
+        一个类型 = 一套上游 + 认证方式 + 请求整形 + 这一类能提供的模型。账号只需选类型，
+        不用逐个填。<b>优先级</b>会叠加到账号自己的优先级上——把免费渠道调高，
+        付费渠道就自动变成溢出容量。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>类型</th><th>上游</th><th>模型</th><th>优先级</th><th>账号</th><th>状态</th><th></th>
+          </tr></thead>
+          <tbody id="typeRows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="sec-head"><h2 id="typeFormTitle">新增类型</h2></div>
+      <form id="typeForm" class="grid" onsubmit="saveType(event)">
+        <label><div class="label">标识 slug</div>
+          <input name="slug" placeholder="如 intl-backup" required />
+          <div class="row-sub">导入导出跨机器靠它对齐，建好后别改</div>
+        </label>
+        <label><div class="label">显示名</div><input name="name" placeholder="如 国际版备用" /></label>
+        <label><div class="label">认证方式</div>
+          <select name="auth_mode">
+            <option value="">跟随实例</option>
+            <option value="api_key">X-Api-Key（ck_）</option>
+            <option value="bearer">Bearer（OAuth）</option>
+          </select>
+        </label>
+        <label><div class="label">请求整形</div>
+          <select name="request_shape">
+            <option value="">跟随实例</option>
+            <option value="cn">cn 透传</option>
+            <option value="intl">intl 整形</option>
+          </select>
+        </label>
+        <label class="full"><div class="label">上游地址</div>
+          <input name="upstream_url" placeholder="https://.../v2/chat/completions" />
+        </label>
+        <label><div class="label">X-Domain</div>
+          <input name="domain" placeholder="留空按上游主机推导" />
+        </label>
+        <label><div class="label">优先级</div><input name="priority" type="number" value="0" /></label>
+        <label class="full"><div class="label">提供的模型</div>
+          <div id="typeModelPicker" class="picker"></div>
+          <div class="row-sub">全不选＝不限（接所有模型）。列表来自下方公共模型表。</div>
+        </label>
+        <label><div class="label">是否启用</div>
+          <select name="enabled"><option value="true">启用</option><option value="false">停用</option></select>
+          <div class="row-sub">停用＝该类型下所有账号整体下线</div>
+        </label>
+        <label><div class="label">备注</div><input name="notes" placeholder="用途、来源" /></label>
+        <div class="full">
+          <button class="primary" type="submit">保存类型</button>
+          <button type="button" onclick="resetTypeForm()">清空</button>
         </div>
-      `).join("");
-    }
+      </form>
+    </section>
 
-    function statusValue(a) {
-      return a.enabled ? a.status : "disabled";
-    }
+    <section>
+      <div class="sec-head">
+        <h2>公共模型表</h2>
+        <span class="badge" id="catalogCount">0</span>
+      </div>
+      <p class="hint">
+        对外 <code class="inline">/v1/models</code> 给出的就是这里勾选「启用」的模型。
+        「提供方」为空说明这个模型启用了却没有任何渠道能接——请求打进来会直接失败。
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th>启用</th><th>模型 ID</th><th>显示名</th><th>倍率</th><th>上下文</th><th>提供方</th><th></th>
+          </tr></thead>
+          <tbody id="catalogRows"></tbody>
+        </table>
+      </div>
+      <form id="modelForm" class="grid" onsubmit="saveCatalogModel(event)" style="margin-top:14px">
+        <label><div class="label">模型 ID</div><input name="id" placeholder="deepseek-v4.1-flash" required /></label>
+        <label><div class="label">显示名</div><input name="name" placeholder="DeepSeek V4.1 Flash" /></label>
+        <label><div class="label">积分倍率</div><input name="credits" placeholder="x0.29 credits" /></label>
+        <label><div class="label">最大输入</div><input name="max_input_tokens" type="number" min="0" placeholder="200000" /></label>
+        <label><div class="label">最大输出</div><input name="max_output_tokens" type="number" min="0" placeholder="48000" /></label>
+        <label><div class="label">支持图片</div>
+          <select name="supports_images"><option value="false">否</option><option value="true">是</option></select>
+        </label>
+        <div class="full"><button class="primary" type="submit">保存模型</button></div>
+      </form>
+    </section>
+  </div>
 
-    function statusText(status) {
-      return { active: "可用", cooldown: "冷却", disabled: "停用" }[status] || status;
-    }
+  <div id="tab-import" class="hidden">
+    <section>
+      <div class="sec-head">
+        <h2>导出</h2><span class="spacer"></span>
+        <button type="button" onclick="exportAccounts()">下载备份 JSON</button>
+        <button type="button" onclick="exportAccounts(true)">显示在下方</button>
+      </div>
+      <p class="hint">
+        导出<strong>含完整凭证</strong>（access + refresh token），可直接再导回来。
+        OAuth 号只有凭证成对才有意义——只带 access 的备份导回去全是到期即废的号。
+      </p>
+      <pre class="block hidden" id="exportBox" style="max-height:300px;overflow:auto"></pre>
+    </section>
 
-    function statusBadge(a) {
-      const status = statusValue(a);
-      return `<span class="status ${escapeHtml(status)}"><span class="dot"></span>${escapeHtml(statusText(status))}</span>`;
-    }
+    <section>
+      <div class="sec-head"><h2>导入</h2></div>
+      <p class="hint">
+        三种来源都认：本页导出的备份、官方登录产出的 <code class="inline">token.json</code>（单个或数组）、
+        按行写的文本。类型与上游配置会自动识别。
+      </p>
+      <div class="grid">
+        <label class="full"><div class="label">
+            粘贴 JSON（备份文件 / token.json）<span style="color:var(--ink-3)">，或</span>
+            <input type="file" accept=".json,application/json" onchange="loadImportFile(this)"
+                   style="width:auto;display:inline-block;padding:2px;border:0;background:none" />
+          </div>
+          <textarea id="importJson" style="min-height:120px"
+            placeholder='{"accessToken":"eyJ...","refreshToken":"eyJ...","domain":"www.codebuddy.ai"}'></textarea>
+        </label>
+        <label class="full"><div class="label">或按行写（每行 1~3 段）</div>
+          <textarea id="importText" style="min-height:96px"
+            placeholder="ck_xxxx&#10;号2,ck_yyyy&#10;intl号,eyJaccess...,eyJrefresh..."></textarea>
+          <div class="row-sub">
+            <code class="inline">凭证</code> ·
+            <code class="inline">名称,凭证</code> ·
+            <code class="inline">名称,access,refresh</code>
+          </div>
+        </label>
+      </div>
 
-    function disableReasonText(reason) {
-      return {
-        quota_exhausted: "额度耗尽",
-        expired: "账号过期",
-        quota_or_credits_exhausted: "上游额度/credits 耗尽",
-      }[reason] || reason || "-";
-    }
+      <details class="adv" style="margin-top:10px">
+        <summary>导入默认值（仅用于来源里没带的字段）</summary>
+        <div class="grid">
+          <label><div class="label">归到哪个类型</div>
+            <select id="importPreset">
+              <option value="">不指定（按凭证与 domain 自动判断）</option>
+            </select>
+          </label>
+          <label><div class="label">承接模型</div><input id="importModels" placeholder="留空＝跟随类型" /></label>
+          <label><div class="label">绑定代理</div><input id="importProxy" placeholder="可空" /></label>
+          <label><div class="label">是否启用</div>
+            <select id="importEnabled"><option value="true">启用</option><option value="false">停用</option></select>
+          </label>
+          <label><div class="label">已存在的凭证</div>
+            <select id="importOverwrite">
+              <option value="false">跳过</option>
+              <option value="true">覆盖（用导入项更新）</option>
+            </select>
+          </label>
+        </div>
+      </details>
 
-    function filteredAccounts() {
-      const query = document.getElementById("search").value.trim().toLowerCase();
-      const filter = document.getElementById("statusFilter").value;
-      return state.accounts.filter((a) => {
-        const status = statusValue(a);
-        if (filter !== "all" && status !== filter) return false;
-        if (!query) return true;
-        const haystack = [a.id, a.name, a.api_key_preview, a.notes, a.last_error, a.proxy_url].join(" ").toLowerCase();
-        return haystack.includes(query);
-      });
-    }
+      <div class="sec-head" style="margin-top:12px">
+        <button class="primary" type="button" onclick="runImport()">开始导入</button>
+      </div>
+      <pre class="block" id="importResult">（导入结果显示在这里）</pre>
+    </section>
+  </div>
 
-    function renderAccounts() {
-      const accounts = filteredAccounts();
-      if (!accounts.length) {
-        document.getElementById("accounts").innerHTML = '<div class="muted">没有匹配的账号。</div>';
+  <!-- ── 接入设置 ───────────────────────────────────────── -->
+  <div id="tab-settings" class="hidden">
+    <section>
+      <div class="sec-head"><h2>全局模型配置</h2></div>
+      <p class="hint">
+        这里配的是对外暴露的模型清单与默认模型。账号可以各自声明只接哪些模型，
+        请求会按模型路由到对应账号。
+      </p>
+      <div class="grid">
+        <label class="full"><div class="label">对外模型清单（逗号或换行分隔）</div>
+          <textarea id="modelsText"></textarea>
+        </label>
+        <label><div class="label">默认模型</div><input id="defaultModel" /></label>
+        <label><div class="label">选号策略</div>
+          <select id="poolStrategy" onchange="renderPoolStrategyHelp()"></select>
+        </label>
+        <div class="full" id="catalogBox"></div>
+        <div class="full"><p class="hint" id="strategyHelp"></p></div>
+        <div class="full"><button class="primary" type="button" onclick="saveModelSettings()">保存设置</button></div>
+      </div>
+    </section>
+    <section>
+      <div class="sec-head"><h2>接入说明</h2></div>
+      <dl class="kv" id="usageBox"></dl>
+    </section>
+  </div>
+</div>
+
+<dialog id="editDlg">
+  <form id="editForm" onsubmit="saveEdit(event)">
+    <div class="dlg-head">
+      <h3 id="editTitle">编辑账号</h3>
+      <div class="sub" id="editSub"></div>
+    </div>
+    <div class="dlg-body">
+      <div class="grid">
+        <label><div class="label">名称</div><input data-edit="name" /></label>
+        <label><div class="label">账号类型（渠道）</div>
+          <select data-edit="type_slug" id="editTypeSelect"><option value="">未归类</option></select>
+        </label>
+        <label class="full"><div class="label">承接模型（覆盖类型）</div>
+          <input data-edit="models" placeholder="留空＝跟随类型" /></label>
+        <label class="full"><div class="label">新凭证（留空不改）</div>
+          <input data-edit="api_key" type="password" placeholder="ck_... 或 eyJ..." />
+        </label>
+        <label class="full"><div class="label">新 Refresh Token（留空不改）</div>
+          <input data-edit="refresh_token" type="password" placeholder="eyJ..." />
+        </label>
+        <label><div class="label">认证方式</div>
+          <select data-edit="auth_mode">
+            <option value="">跟随实例</option>
+            <option value="api_key">X-Api-Key</option>
+            <option value="bearer">Bearer</option>
+          </select>
+        </label>
+        <label><div class="label">请求整形</div>
+          <select data-edit="request_shape">
+            <option value="">跟随实例</option>
+            <option value="cn">cn</option>
+            <option value="intl">intl</option>
+          </select>
+        </label>
+        <label class="full"><div class="label">上游地址</div><input data-edit="upstream_url" placeholder="留空跟随实例" /></label>
+        <label><div class="label">X-Domain</div><input data-edit="domain" placeholder="留空推导" /></label>
+        <label><div class="label">代理</div><input data-edit="proxy_url" placeholder="可空" /></label>
+        <label><div class="label">优先级</div><input data-edit="priority" type="number" /></label>
+        <label><div class="label">权重</div><input data-edit="weight" type="number" min="1" max="100" /></label>
+        <label><div class="label">并发上限</div><input data-edit="concurrency" type="number" min="1" max="100" /></label>
+        <label><div class="label">额度上限</div><input data-edit="quota_limit" type="number" min="0" step="0.000001" /></label>
+        <label class="full"><div class="label">备注</div><input data-edit="notes" /></label>
+      </div>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" onclick="editDlg.close()">取消</button>
+      <button class="primary" type="submit">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="diagDlg">
+  <div class="dlg-head">
+    <h3>账号自检</h3>
+    <div class="sub" id="diagSub"></div>
+  </div>
+  <div class="dlg-body" id="diagBody"></div>
+  <div class="dlg-foot"><button type="button" onclick="diagDlg.close()">关闭</button></div>
+</dialog>
+
+<script>
+  let state = { accounts: [], stats: null, settings: null, types: [], catalog: [], editingType: "" };
+  const addForm = document.getElementById("addForm");
+  const typeForm = document.getElementById("typeForm");
+  const modelForm = document.getElementById("modelForm");
+  const editDlg = document.getElementById("editDlg");
+  const diagDlg = document.getElementById("diagDlg");
+
+  // ── 基础工具 ─────────────────────────────────────────────
+  function adminKey() {
+    // 兼容旧面板存的 key，升级后不用重新输口令
+    return localStorage.getItem("cb2api_admin_key")
+        || localStorage.getItem("codebuddy2api.adminKey") || "";
+  }
+  function saveKey() {
+    localStorage.setItem("cb2api_admin_key", document.getElementById("adminKey").value.trim());
+    show("口令已保存"); refreshAll();
+  }
+  async function api(path, options = {}) {
+    const res = await fetch(path, {
+      ...options,
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + adminKey(), ...(options.headers || {}) },
+    });
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { detail: text }; }
+    if (!res.ok) throw new Error((data && (data.detail || data.error?.message)) || `HTTP ${res.status}`);
+    return data;
+  }
+  function show(message, isError = false) {
+    document.querySelectorAll(".toast").forEach((n) => n.remove());
+    const el = document.createElement("div");
+    el.className = "toast" + (isError ? " err" : "");
+    el.textContent = message;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), isError ? 7000 : 3200);
+  }
+  const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function fmt(v) {
+    if (v === null || v === undefined) return "-";
+    if (typeof v !== "number") return String(v);
+    return Number.isInteger(v) ? v.toLocaleString() : v.toFixed(2);
+  }
+  function timeText(ts) { return ts ? new Date(ts * 1000).toLocaleString() : "-"; }
+  function daysLeft(ts) {
+    if (!ts) return null;
+    return Math.floor((ts * 1000 - Date.now()) / 86400000);
+  }
+  function splitList(v) {
+    return String(v || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
+  }
+  function parseJsonOr(raw, fallback) {
+    const t = String(raw || "").trim();
+    if (!t) return fallback;
+    try { return JSON.parse(t); } catch { return fallback; }
+  }
+  function tsFromLocal(v) { return v ? Math.floor(new Date(v).getTime() / 1000) : null; }
+
+  // ── Tab 切换 ─────────────────────────────────────────────
+  document.querySelectorAll(".tab").forEach((btn) => {
+    btn.onclick = () => {
+      document.querySelectorAll(".tab").forEach((b) => b.classList.toggle("active", b === btn));
+      ["overview", "accounts", "channels", "import", "settings"].forEach((name) =>
+        document.getElementById("tab-" + name).classList.toggle("hidden", name !== btn.dataset.tab));
+    };
+  });
+
+  // ── 新增账号：类型选择与凭证识别 ─────────────────────────
+  function typeBySlug(slug) {
+    return state.types.find((t) => t.slug === slug) || null;
+  }
+  function onTypePicked(slug) {
+    const hint = document.getElementById("typeHint");
+    const t = typeBySlug(slug);
+    if (!t) {
+      hint.textContent = "自动识别：按凭证形态（ck_ / eyJ）归类，认不出来就跟随实例配置";
+      return;
+    }
+    const models = t.models && t.models.length ? t.models.join("、") : "不限";
+    hint.textContent = `${t.upstream_url || "跟随实例"} · ${t.auth_mode || "跟随实例"} · 模型：${models}`;
+  }
+  function renderTypeOptions() {
+    const sel = document.getElementById("addTypeSelect");
+    if (!sel) return;
+    const current = sel.value;
+    sel.innerHTML = '<option value="">自动识别</option>' +
+      state.types.map((t) =>
+        `<option value="${esc(t.slug)}"${t.enabled ? "" : " data-off=\"1\""}>` +
+        `${esc(t.name)}${t.enabled ? "" : "（已停用）"}</option>`).join("");
+    sel.value = current;
+
+    const imp = document.getElementById("importPreset");
+    if (imp) {
+      const keep = imp.value;
+      imp.innerHTML = '<option value="">不指定（按凭证与 domain 自动判断）</option>' +
+        state.types.map((t) => `<option value="${esc(t.slug)}">${esc(t.name)}</option>`).join("");
+      imp.value = keep;
+    }
+  }
+  function detectKind(credential) {
+    const v = String(credential || "").trim();
+    if (!v) return "";
+    if (v.startsWith("ck_")) return "api_key";
+    if (v.startsWith("eyJ") && v.split(".").length === 3) return "bearer";
+    return "";
+  }
+  function onCredentialInput(value) {
+    const kind = detectKind(value);
+    const hint = document.getElementById("credHint");
+    const rtNeed = document.getElementById("rtNeed");
+    rtNeed.classList.toggle("hidden", kind !== "bearer");
+    if (kind === "bearer") {
+      const exp = jwtExp(value);
+      const d = exp ? daysLeft(exp) : null;
+      hint.textContent = "识别为 OAuth 凭证（Bearer）" + (d !== null ? ` · access token 剩余 ${d} 天` : "");
+    } else if (kind === "api_key") {
+      hint.textContent = "识别为 ck_ 订阅 key（X-Api-Key）";
+    } else {
+      hint.textContent = value ? "无法识别类型，将跟随实例默认配置" : " ";
+    }
+  }
+  function jwtExp(token) {
+    const parts = String(token || "").split(".");
+    if (parts.length !== 3) return null;
+    try {
+      const pad = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      return JSON.parse(atob(pad + "=".repeat((4 - pad.length % 4) % 4))).exp || null;
+    } catch { return null; }
+  }
+
+  async function addAccount(event) {
+    event.preventDefault();
+    const f = new FormData(addForm);
+    const payload = {
+      name: f.get("name"),
+      api_key: f.get("api_key"),
+      enabled: f.get("enabled") === "true",
+      priority: Number(f.get("priority") || 100),
+      weight: Number(f.get("weight") || 1),
+      concurrency: Number(f.get("concurrency") || 1),
+      proxy_url: f.get("proxy_url") ? String(f.get("proxy_url")) : null,
+      notes: f.get("notes") ? String(f.get("notes")) : null,
+      quota_limit: Number(f.get("quota_limit") || 0),
+      quota_auto_disable: f.get("quota_auto_disable") === "true",
+      expires_at: tsFromLocal(f.get("expires_at")),
+      expire_auto_disable: f.get("expire_auto_disable") === "true",
+      header_profile: parseJsonOr(f.get("header_profile"), {}),
+      refresh_token: String(f.get("refresh_token") || "").trim() || null,
+      auth_mode: String(f.get("auth_mode") || "").trim() || null,
+      request_shape: String(f.get("request_shape") || "").trim() || null,
+      upstream_url: String(f.get("upstream_url") || "").trim() || null,
+      domain: String(f.get("domain") || "").trim() || null,
+      models: splitList(f.get("models")),
+      type_slug: String(f.get("type_slug") || "").trim() || null,
+    };
+    try {
+      await api("/admin/accounts", { method: "POST", body: JSON.stringify(payload) });
+      addForm.reset();
+      document.getElementById("credHint").innerHTML = "&nbsp;";
+      show("账号已添加");
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+
+
+  // ── 渠道与模型表 ─────────────────────────────────────────
+  function renderTypes() {
+    document.getElementById("typeCount").textContent = state.types.length;
+    const rows = state.types.map((t) => {
+      const models = t.models && t.models.length
+        ? t.models.map((m) => `<code class="inline">${esc(m)}</code>`).join(" ")
+        : '<span style="color:var(--ink-3)">不限（接全部）</span>';
+      const host = t.upstream_url ? hostOf(t.upstream_url) : "跟随实例";
+      const auth = t.auth_mode === "bearer" ? "OAuth" : (t.auth_mode === "api_key" ? "ck Key" : "跟随实例");
+      return `<tr>
+        <td><b>${esc(t.name)}</b><div class="row-sub mono">${esc(t.slug)}</div>
+            ${t.builtin ? '<span class="badge">内置</span>' : ""}</td>
+        <td><span class="mono">${esc(host)}</span><div class="row-sub">${esc(auth)} · ${esc(t.request_shape || "跟随实例")}</div></td>
+        <td>${models}</td>
+        <td>${t.priority}</td>
+        <td>${t.accounts}</td>
+        <td>${t.enabled ? '<span class="badge ok">启用</span>' : '<span class="badge warn">停用</span>'}</td>
+        <td class="right">
+          <button onclick="editType('${esc(t.slug)}')">编辑</button>
+          ${t.builtin ? "" : `<button class="danger" onclick="deleteType('${esc(t.slug)}')">删除</button>`}
+        </td>
+      </tr>`;
+    });
+    document.getElementById("typeRows").innerHTML = rows.join("") ||
+      '<tr><td colspan="7" style="color:var(--ink-3)">还没有账号类型</td></tr>';
+    renderTypeModelPicker();
+  }
+  function hostOf(url) {
+    try { return new URL(url).host; } catch { return url; }
+  }
+  function renderTypeModelPicker(selected) {
+    const box = document.getElementById("typeModelPicker");
+    if (!box) return;
+    const picked = new Set(selected || currentTypeModels());
+    box.innerHTML = state.catalog.map((m) =>
+      `<label class="modelpick"><input type="checkbox" value="${esc(m.id)}"${picked.has(m.id) ? " checked" : ""} />` +
+      `<span>${esc(m.id)}</span></label>`).join("") ||
+      '<span style="color:var(--ink-3)">模型表还是空的</span>';
+  }
+  function currentTypeModels() {
+    return Array.from(document.querySelectorAll("#typeModelPicker input:checked")).map((el) => el.value);
+  }
+  function resetTypeForm() {
+    state.editingType = "";
+    typeForm.reset();
+    document.getElementById("typeFormTitle").textContent = "新增类型";
+    typeForm.elements.slug.readOnly = false;
+    renderTypeModelPicker([]);
+  }
+  function editType(slug) {
+    const t = typeBySlug(slug);
+    if (!t) return;
+    state.editingType = slug;
+    document.getElementById("typeFormTitle").textContent = `编辑类型：${t.name}`;
+    const f = typeForm.elements;
+    f.slug.value = t.slug;
+    f.slug.readOnly = true; // 改 slug 等于新建一个类型，名下的号会集体失联
+    f.name.value = t.name || "";
+    f.auth_mode.value = t.auth_mode || "";
+    f.request_shape.value = t.request_shape || "";
+    f.upstream_url.value = t.upstream_url || "";
+    f.domain.value = t.domain || "";
+    f.priority.value = t.priority || 0;
+    f.enabled.value = String(!!t.enabled);
+    f.notes.value = t.notes || "";
+    renderTypeModelPicker(t.models || []);
+    document.getElementById("typeForm").scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  async function saveType(event) {
+    event.preventDefault();
+    const f = new FormData(typeForm);
+    const payload = {
+      slug: String(f.get("slug") || "").trim(),
+      name: String(f.get("name") || "").trim(),
+      auth_mode: String(f.get("auth_mode") || ""),
+      request_shape: String(f.get("request_shape") || ""),
+      upstream_url: String(f.get("upstream_url") || "").trim(),
+      domain: String(f.get("domain") || "").trim(),
+      priority: Number(f.get("priority") || 0),
+      enabled: f.get("enabled") === "true",
+      notes: String(f.get("notes") || "").trim(),
+      models: currentTypeModels(),
+    };
+    try {
+      await api("/admin/types", { method: "POST", body: JSON.stringify(payload) });
+      show("类型已保存");
+      resetTypeForm();
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+  async function deleteType(slug) {
+    const t = typeBySlug(slug);
+    if (!confirm(`删除类型「${t ? t.name : slug}」？`)) return;
+    try {
+      await api(`/admin/types/${encodeURIComponent(slug)}`, { method: "DELETE" });
+      show("类型已删除");
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+
+  function renderCatalog() {
+    document.getElementById("catalogCount").textContent = state.catalog.length;
+    const rows = state.catalog.map((m) => {
+      const providers = m.types && m.types.length
+        ? m.types.map((n) => esc(n)).join("、")
+        : (m.enabled ? '<span class="badge warn">无渠道可接</span>' : '<span style="color:var(--ink-3)">—</span>');
+      const ctx = m.max_input_tokens
+        ? `${Math.round(m.max_input_tokens / 1000)}k / ${Math.round((m.max_output_tokens || 0) / 1000)}k`
+        : "—";
+      return `<tr>
+        <td><input type="checkbox" ${m.enabled ? "checked" : ""}
+             onchange="toggleModel('${esc(m.id)}', this.checked)" /></td>
+        <td class="mono">${esc(m.id)}</td>
+        <td>${esc(m.name || "")}</td>
+        <td>${esc(m.credits || "—")}</td>
+        <td>${ctx}</td>
+        <td>${providers}</td>
+        <td class="right"><button class="danger" onclick="deleteModel('${esc(m.id)}')">删除</button></td>
+      </tr>`;
+    });
+    document.getElementById("catalogRows").innerHTML = rows.join("") ||
+      '<tr><td colspan="7" style="color:var(--ink-3)">模型表是空的</td></tr>';
+  }
+  async function toggleModel(id, enabled) {
+    const m = state.catalog.find((x) => x.id === id);
+    if (!m) return;
+    try {
+      await api("/admin/models", { method: "POST", body: JSON.stringify({ ...m, enabled }) });
+      show(`${id} 已${enabled ? "启用" : "停用"}`);
+      await refreshAll();
+    } catch (err) { show(err.message, true); await refreshAll(); }
+  }
+  async function saveCatalogModel(event) {
+    event.preventDefault();
+    const f = new FormData(modelForm);
+    const id = String(f.get("id") || "").trim();
+    const existing = state.catalog.find((x) => x.id === id);
+    const payload = {
+      id,
+      name: String(f.get("name") || "").trim() || id,
+      credits: String(f.get("credits") || "").trim(),
+      max_input_tokens: Number(f.get("max_input_tokens") || 0),
+      max_output_tokens: Number(f.get("max_output_tokens") || 0),
+      supports_images: f.get("supports_images") === "true",
+      // 新增的模型默认不启用：先在类型里挂上再开，免得开出一个没人能接的模型
+      enabled: existing ? existing.enabled : false,
+      sort_order: existing ? existing.sort_order : state.catalog.length,
+    };
+    try {
+      await api("/admin/models", { method: "POST", body: JSON.stringify(payload) });
+      show("模型已保存");
+      modelForm.reset();
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+  async function deleteModel(id) {
+    if (!confirm(`从模型表删除「${id}」？`)) return;
+    try {
+      await api(`/admin/models/${encodeURIComponent(id)}`, { method: "DELETE" });
+      show("模型已删除");
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+
+  // ── 账号列表 ─────────────────────────────────────────────
+  function statusBadge(a) {
+    if (!a.enabled) return '<span class="badge">停用</span>';
+    if (a.credits_paused) return '<span class="badge warn">余额暂停</span>';
+    if (a.status === "cooldown") return '<span class="badge warn">冷却中</span>';
+    if (a.consecutive_failures > 0) return `<span class="badge warn">失败 ${a.consecutive_failures}</span>`;
+    return '<span class="badge ok">正常</span>';
+  }
+  function typeCell(a) {
+    const t = typeBySlug(a.type_slug);
+    const label = t
+      ? `<span class="badge ${t.auth_mode === "bearer" ? "accent" : ""}">${esc(t.name)}</span>` +
+        (t.enabled ? "" : '<span class="badge warn">类型已停用</span>')
+      : '<span class="badge">未归类</span>';
+    // 显示实际生效的模型，而不是账号上填了什么——回落链有三层，
+    // 让人自己在脑子里跑一遍是这套配置以前最难用的地方
+    const eff = a.effective_models && a.effective_models.length ? a.effective_models : null;
+    const models = eff
+      ? eff.map((m) => `<code class="inline">${esc(m)}</code>`).join(" ")
+      : '<span style="color:var(--ink-3)">接全部模型</span>';
+    const own = (a.models && a.models.length) ? '<span class="badge">账号覆盖</span>' : "";
+    return `${label}<div class="row-sub">${models} ${own}</div>`;
+  }
+  function credCell(a) {
+    if (a.auth_mode !== "bearer") return '<span style="color:var(--ink-3)">—</span>';
+    const d = daysLeft(a.token_expires_at);
+    const life = d === null ? "未知"
+      : d <= 0 ? '<span class="badge bad">已过期</span>'
+      : d <= 30 ? `<span class="badge warn">${d} 天</span>`
+      : `<span class="badge ok">${d} 天</span>`;
+    const rt = a.has_refresh_token
+      ? '<div class="row-sub" style="color:var(--ok)">可自助续期</div>'
+      : '<div class="row-sub" style="color:var(--bad)">无 refresh token</div>';
+    return life + rt;
+  }
+  function filteredAccounts() {
+    const q = document.getElementById("filterBox").value.trim().toLowerCase();
+    const st = document.getElementById("statusFilter").value;
+    return state.accounts.filter((a) => {
+      if (st === "disabled" && a.enabled) return false;
+      if (st === "active" && (!a.enabled || a.status !== "active")) return false;
+      if (st === "cooldown" && a.status !== "cooldown") return false;
+      if (!q) return true;
+      return [a.id, a.name, a.notes, a.api_key_preview, (a.models || []).join(" "), a.domain]
+        .join(" ").toLowerCase().includes(q);
+    });
+  }
+  function renderAccounts() {
+    const rows = filteredAccounts();
+    document.getElementById("poolCount").textContent = `${rows.length} / ${state.accounts.length}`;
+    document.getElementById("accountRows").innerHTML = rows.map((a) => `
+      <tr>
+        <td><input type="checkbox" class="pick" value="${a.id}" style="width:auto" /></td>
+        <td>
+          <div class="row-name">${esc(a.name)}</div>
+          <div class="row-sub mono">#${a.id} · ${esc(a.api_key_preview || "-")}</div>
+          ${a.notes ? `<div class="row-sub">${esc(a.notes)}</div>` : ""}
+        </td>
+        <td>${typeCell(a)}</td>
+        <td>${statusBadge(a)}${a.last_error ? `<div class="row-sub" title="${esc(a.last_error)}">${esc(String(a.last_error).slice(0, 28))}…</div>` : ""}</td>
+        <td class="num">${a.credits_remaining === null || a.credits_remaining === undefined
+            ? "-" : `${fmt(a.credits_remaining)}<div class="row-sub">/ ${fmt(a.credits_total)}</div>`}</td>
+        <td class="num">${fmt(a.total_requests)}<div class="row-sub">失败 ${fmt(a.total_failures)}</div></td>
+        <td>${credCell(a)}</td>
+        <td>${a.proxy_url ? `<span class="badge">已绑定</span><div class="row-sub mono">${esc(String(a.proxy_url).slice(0, 22))}</div>`
+            : '<span style="color:var(--ink-3)">直连</span>'}</td>
+        <td>
+          <div class="cell-actions">
+            <button class="mini" onclick="openEdit(${a.id})">编辑</button>
+            <button class="mini" onclick="diagnose(${a.id})">自检</button>
+            <button class="mini" onclick="setEnabled(${a.id}, ${!a.enabled})">${a.enabled ? "停用" : "启用"}</button>
+            <button class="mini danger" onclick="deleteAccount(${a.id}, '${esc(a.name)}')">删除</button>
+          </div>
+        </td>
+      </tr>`).join("") || `<tr><td colspan="9" style="color:var(--ink-3);padding:18px">没有账号</td></tr>`;
+  }
+
+  // ── 总览 ────────────────────────────────────────────────
+  function renderStats() {
+    const s = state.stats || {};
+    const box = [
+      ["账号总数", fmt(s.accounts)], ["启用中", fmt(s.enabled_accounts)],
+      ["总请求", fmt(s.total_requests)], ["成功", fmt(s.total_success)],
+      ["失败", fmt(s.total_failures)], ["累计 credit", fmt(s.total_credit)],
+      ["总 tokens", fmt(s.total_tokens)],
+    ];
+    document.getElementById("statsBox").innerHTML = box
+      .map(([k, v]) => `<div class="stat"><div class="k">${k}</div><div class="v">${v}</div></div>`).join("");
+  }
+  function renderCredits() {
+    const withCredits = state.accounts.filter((a) => a.credits_total !== null && a.credits_total !== undefined);
+    const remain = withCredits.reduce((n, a) => n + (a.credits_remaining || 0), 0);
+    const total = withCredits.reduce((n, a) => n + (a.credits_total || 0), 0);
+    const free = state.accounts.filter((a) => a.auth_mode === "bearer").length;
+    document.getElementById("creditsBox").innerHTML = `
+      <div class="stat"><div class="k">剩余积分</div><div class="v">${fmt(remain)}</div></div>
+      <div class="stat"><div class="k">积分总额</div><div class="v">${fmt(total)}</div></div>
+      <div class="stat"><div class="k">有积分的号</div><div class="v">${withCredits.length}</div></div>
+      <div class="stat"><div class="k">OAuth 凭证号</div><div class="v">${free}</div></div>`;
+  }
+  function renderProblems() {
+    const bad = state.accounts.filter((a) =>
+      !a.enabled || a.credits_paused || a.status === "cooldown" || a.consecutive_failures > 0 ||
+      (a.auth_mode === "bearer" && !a.has_refresh_token) ||
+      (a.auth_mode === "bearer" && daysLeft(a.token_expires_at) !== null && daysLeft(a.token_expires_at) <= 30));
+    document.getElementById("problemBox").innerHTML = bad.length
+      ? `<div class="scroll"><table><thead><tr><th>账号</th><th>问题</th><th>详情</th></tr></thead><tbody>` +
+        bad.map((a) => {
+          const issues = [];
+          if (!a.enabled) issues.push("已停用");
+          if (a.credits_paused) issues.push("余额耗尽暂停");
+          if (a.status === "cooldown") issues.push("冷却中");
+          if (a.consecutive_failures > 0) issues.push(`连续失败 ${a.consecutive_failures}`);
+          if (a.auth_mode === "bearer" && !a.has_refresh_token) issues.push("无 refresh token（到期会静默失效）");
+          const d = daysLeft(a.token_expires_at);
+          if (a.auth_mode === "bearer" && d !== null && d <= 30) issues.push(`凭证 ${d} 天后过期`);
+          return `<tr><td><div class="row-name">${esc(a.name)}</div><div class="row-sub mono">#${a.id}</div></td>
+            <td>${issues.map((i) => `<span class="badge warn">${esc(i)}</span>`).join(" ")}</td>
+            <td class="row-sub">${esc(a.last_error || a.last_disable_reason || "-")}</td></tr>`;
+        }).join("") + "</tbody></table></div>"
+      : '<p class="hint" style="margin:0">所有账号状态正常。</p>';
+  }
+
+  // ── 自检 ────────────────────────────────────────────────
+  async function diagnose(id) {
+    const a = state.accounts.find((x) => x.id === id);
+    document.getElementById("diagSub").textContent = `#${id} ${a ? a.name : ""} · 正在检测…`;
+    document.getElementById("diagBody").innerHTML = '<p class="hint">检测中（会发一次探活请求）…</p>';
+    diagDlg.showModal();
+    try {
+      const r = await api(`/admin/accounts/${id}/diagnose`, { method: "POST" });
+      const mark = (ok) => ok ? '<span class="badge ok">通过</span>' : '<span class="badge bad">失败</span>';
+      document.getElementById("diagSub").textContent = `#${id} ${a ? a.name : ""} · ${r.detail}`;
+      document.getElementById("diagBody").innerHTML = `
+        <div class="diag-line"><div class="dk">生效配置</div><div class="dv">
+          <code class="inline">${esc(r.auth_mode)}</code> ·
+          <code class="inline">${esc(r.request_shape)}</code><br>
+          <span class="mono" style="font-size:12px">${esc(r.upstream_url)}</span><br>
+          <span class="row-sub">X-Domain: ${esc(r.domain)} · 模型: ${(r.models || []).join(", ") || "全部"}</span>
+        </div></div>
+        <div class="diag-line"><div class="dk">代理</div><div class="dv">
+          ${r.proxy.configured ? mark(r.proxy.ok) : '<span class="badge">未配置</span>'}
+          ${r.proxy.exit_ip ? ` 出口 IP <code class="inline">${esc(r.proxy.exit_ip)}</code>` : ""}
+          <span class="row-sub">${esc(r.proxy.detail)} · ${r.proxy.latency_ms}ms</span>
+        </div></div>
+        <div class="diag-line"><div class="dk">凭证</div><div class="dv">
+          <span class="badge">${esc(r.credential.kind)}</span>
+          <span class="row-sub">${esc(r.credential.detail)}</span>
+        </div></div>
+        <div class="diag-line"><div class="dk">上游</div><div class="dv">
+          ${mark(r.upstream.ok)} <span class="row-sub">${esc(r.upstream.detail)} · ${r.upstream.latency_ms}ms</span>
+        </div></div>`;
+    } catch (err) {
+      document.getElementById("diagBody").innerHTML = `<p style="color:var(--bad)">${esc(err.message)}</p>`;
+    }
+  }
+
+  // ── 编辑 ────────────────────────────────────────────────
+  function editField(name) { return document.querySelector(`[data-edit="${name}"]`); }
+  let editingId = null;
+  function openEdit(id) {
+    const a = state.accounts.find((x) => x.id === id);
+    if (!a) return;
+    editingId = id;
+    document.getElementById("editTitle").textContent = `编辑 ${a.name}`;
+    document.getElementById("editSub").textContent = `#${a.id} · ${a.api_key_preview || ""}`;
+    editField("name").value = a.name || "";
+    const typeSel = document.getElementById("editTypeSelect");
+    typeSel.innerHTML = '<option value="">未归类</option>' +
+      state.types.map((t) => `<option value="${esc(t.slug)}">${esc(t.name)}</option>`).join("");
+    typeSel.value = a.type_slug || "";
+    editField("models").value = (a.models || []).join(", ");
+    editField("api_key").value = "";
+    editField("refresh_token").value = "";
+    editField("auth_mode").value = a.auth_mode || "";
+    editField("request_shape").value = a.request_shape || "";
+    editField("upstream_url").value = a.upstream_url || "";
+    editField("domain").value = a.domain || "";
+    editField("proxy_url").value = a.proxy_url || "";
+    editField("priority").value = a.priority;
+    editField("weight").value = a.weight;
+    editField("concurrency").value = a.concurrency;
+    editField("quota_limit").value = a.quota_limit;
+    editField("notes").value = a.notes || "";
+    editDlg.showModal();
+  }
+  async function saveEdit(event) {
+    event.preventDefault();
+    const payload = {
+      name: editField("name").value,
+      type_slug: editField("type_slug").value,
+      models: splitList(editField("models").value),
+      auth_mode: editField("auth_mode").value,
+      request_shape: editField("request_shape").value,
+      upstream_url: editField("upstream_url").value,
+      domain: editField("domain").value,
+      // 发空字符串而不是 null：后端把 null 当成「本次不改」，只有 "" 才会清空
+      proxy_url: editField("proxy_url").value,
+      priority: Number(editField("priority").value),
+      weight: Number(editField("weight").value),
+      concurrency: Number(editField("concurrency").value),
+      quota_limit: Number(editField("quota_limit").value),
+      notes: editField("notes").value,
+    };
+    const key = editField("api_key").value.trim();
+    if (key) payload.api_key = key;
+    const rt = editField("refresh_token").value.trim();
+    if (rt) payload.refresh_token = rt;
+    try {
+      await api(`/admin/accounts/${editingId}`, { method: "PATCH", body: JSON.stringify(payload) });
+      editDlg.close(); show("已保存"); await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+
+  // ── 单个/批量操作 ────────────────────────────────────────
+  function picked() {
+    return [...document.querySelectorAll(".pick:checked")].map((n) => Number(n.value));
+  }
+  function toggleAll(on) {
+    document.querySelectorAll(".pick").forEach((n) => { n.checked = on; });
+  }
+  async function setEnabled(id, enabled) {
+    try {
+      await api(`/admin/accounts/${id}/${enabled ? "enable" : "disable"}`, { method: "POST" });
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+  async function deleteAccount(id, name) {
+    if (!confirm(`删除账号「${name}」？不可恢复。`)) return;
+    try { await api(`/admin/accounts/${id}`, { method: "DELETE" }); show("已删除"); await refreshAll(); }
+    catch (err) { show(err.message, true); }
+  }
+  async function bulkSetEnabled(enabled) {
+    const ids = picked();
+    if (!ids.length) return show("先勾选账号", true);
+    for (const id of ids) await api(`/admin/accounts/${id}/${enabled ? "enable" : "disable"}`, { method: "POST" }).catch(() => {});
+    show(`已${enabled ? "启用" : "停用"} ${ids.length} 个`); await refreshAll();
+  }
+  async function bulkProbe() {
+    const ids = picked();
+    if (!ids.length) return show("先勾选账号", true);
+    show(`探活中（${ids.length} 个）…`);
+    let ok = 0;
+    for (const id of ids) {
+      try { await api(`/admin/accounts/${id}/probe`, { method: "POST" }); ok++; } catch {}
+    }
+    show(`探活完成：成功 ${ok} / ${ids.length}`); await refreshAll();
+  }
+  async function bulkReset() {
+    const ids = picked();
+    if (!ids.length) return show("先勾选账号", true);
+    for (const id of ids) await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ reset_failures: true }) }).catch(() => {});
+    show(`已清除 ${ids.length} 个账号的故障计数`); await refreshAll();
+  }
+
+  // ── 导入导出 ────────────────────────────────────────────
+  async function exportAccounts(inline) {
+    try {
+      const bundle = await api("/admin/accounts/export");
+      if (inline) {
+        const box = document.getElementById("exportBox");
+        box.textContent = JSON.stringify(bundle, null, 2);
+        box.classList.remove("hidden");
+        show(`已导出 ${bundle.accounts.length} 个账号`);
         return;
       }
-      document.getElementById("accounts").innerHTML = `
-        <div class="table-wrap">
-          <table class="compact-table">
-            <thead>
-              <tr>
-                <th><input id="checkAll" type="checkbox" /></th>
-                <th>ID</th><th>名称</th><th>状态</th><th>真实余额</th><th>Credits</th><th>优先级</th><th>权重</th><th>并发</th><th>请求</th><th>最近状态</th><th>操作</th>
-              </tr>
-            </thead>
-            <tbody>${accounts.map(accountRow).join("")}</tbody>
-          </table>
-        </div>`;
-      document.getElementById("checkAll").addEventListener("change", (event) => {
-        document.querySelectorAll(".account-check").forEach((item) => { item.checked = event.target.checked; });
-      });
-    }
+      // 面板是自己的服务直出的页面，blob 下载可用
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `codebuddy2api-accounts-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      show(`已导出 ${bundle.accounts.length} 个账号（含完整凭证）`);
+    } catch (err) { show(err.message, true); }
+  }
 
-    // 真实余额单元格：来自官方计费接口；与面板的累计 credit 是两个口径
-    function realCreditCell(a) {
-      if (a.credits_error) {
-        return `<td class="small"><div class="row-sub" style="color:#fca5a5;" title="${escapeHtml(a.credits_error)}">查询失败</div>
-          <div class="row-sub">${escapeHtml(time(a.credits_checked_at))}</div></td>`;
-      }
-      if (a.credits_remaining === null || a.credits_remaining === undefined) {
-        return '<td class="small"><div class="row-sub">未查询</div></td>';
-      }
-      const remain = Number(a.credits_remaining || 0);
-      const total = Number(a.credits_total || 0);
-      const percent = total > 0 ? Math.min(100, Math.max(0, remain / total * 100)) : 0;
-      const barClass = percent <= 10 ? "credit-bar warn" : "credit-bar";
-      const tip = a.credits_packages ? ` title="${escapeHtml(a.credits_packages)}"` : "";
-      return `<td class="small"${tip}>
-        <div class="mono">${escapeHtml(fmt(remain))} / ${escapeHtml(fmt(total))} 剩</div>
-        ${total > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
-        ${a.credits_paused ? '<div class="row-sub" style="color:#fca5a5;">积分耗尽已暂停</div>' : ""}
-        ${a.credits_cycle_end ? `<div class="row-sub">重置：${escapeHtml(time(a.credits_cycle_end))}</div>` : ""}
-        <div class="row-sub">查询：${escapeHtml(time(a.credits_checked_at))}</div>
-      </td>`;
-    }
+  function loadImportFile(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      document.getElementById("importJson").value = String(reader.result || "");
+      show(`已读入 ${file.name}`);
+    };
+    reader.readAsText(file);
+    input.value = "";
+  }
 
-    function accountRow(a) {
-      const limit = Number(a.quota_limit || 0);
-      const used = Number(a.total_credit || 0);
-      const remaining = a.quota_remaining === null || a.quota_remaining === undefined ? null : Number(a.quota_remaining || 0);
-      const percent = limit > 0 ? Math.min(100, Math.max(0, used / limit * 100)) : 0;
-      const barClass = limit > 0 && percent >= 85 ? "credit-bar warn" : "credit-bar";
-      const creditText = limit > 0
-        ? `${fmt(used)} / ${fmt(remaining)} 剩 / ${fmt(limit)}`
-        : `${fmt(used)} / 未设置上限`;
-      const lastLine = a.last_error
-        ? `<div class="row-sub" title="${escapeHtml(a.last_error)}">错误：${escapeHtml(truncateText(a.last_error, 48))}</div>`
-        : `<div class="row-sub">最近成功：${escapeHtml(time(a.last_success_at))}</div>`;
-      return `
-        <tr data-id="${a.id}">
-          <td><input class="account-check" type="checkbox" value="${a.id}" /></td>
-          <td class="mono nowrap">${a.id}</td>
-          <td>
-            <div class="row-title">${escapeHtml(a.name)}</div>
-            <div class="row-sub mono">${escapeHtml(a.api_key_preview || "-")}</div>
-            ${a.notes ? `<div class="row-sub">${escapeHtml(truncateText(a.notes, 54))}</div>` : ""}
-          </td>
-          <td>
-            ${statusBadge(a)}
-            ${a.quota_exceeded ? '<div class="row-sub" style="color:#fca5a5;">额度已超</div>' : ""}
-            ${a.cooldown_until ? `<div class="row-sub">冷却至：${escapeHtml(time(a.cooldown_until))}</div>` : ""}
-          </td>
-          ${realCreditCell(a)}
-          <td class="small">
-            <div class="mono">${escapeHtml(creditText)}</div>
-            ${limit > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
-          </td>
-          <td><input class="inline-number" title="修改后自动保存" type="number" value="${escapeHtml(a.priority)}" onchange="patchNumber(${a.id}, 'priority', this.value)" onkeydown="inlineEnter(event)" /></td>
-          <td><input class="inline-number" title="修改后自动保存，范围 1-100" type="number" min="1" max="100" value="${escapeHtml(a.weight)}" onchange="patchNumber(${a.id}, 'weight', this.value)" onkeydown="inlineEnter(event)" /></td>
-          <td>
-            <span class="mono">${escapeHtml(fmt(a.in_flight))}/${escapeHtml(fmt(a.concurrency))}</span>
-          </td>
-          <td class="small mono">${escapeHtml(fmt(a.total_requests))}/${escapeHtml(fmt(a.total_success))}/${escapeHtml(fmt(a.total_failures))}</td>
-          <td class="small">
-            ${lastLine}
-            <div class="row-sub">最近失败：${escapeHtml(time(a.last_failure_at))}</div>
-            <div class="row-sub">错误码：<span class="mono">${escapeHtml(fmt(a.last_error_status))}</span></div>
-          </td>
-          <td>
-            <div class="actions">
-              <button type="button" onclick="openEdit(${a.id})">编辑</button>
-              <button type="button" class="${a.enabled ? "bad" : "ok"}" onclick="setEnabled(${a.id}, ${a.enabled ? "false" : "true"})">${a.enabled ? "停用" : "启用"}</button>
-              <button type="button" class="secondary" onclick="probe(${a.id})">探测</button>
-            </div>
-          </td>
-        </tr>`;
-    }
+  async function runImport() {
+    const rawJson = document.getElementById("importJson").value.trim();
+    const text = document.getElementById("importText").value.trim();
+    if (!rawJson && !text) return show("先粘 JSON 或按行写几条", true);
 
-    async function addAccount(event) {
-      event.preventDefault();
-      const formEl = event.currentTarget;
-      const form = new FormData(formEl);
+    const payload = { text, overwrite: document.getElementById("importOverwrite").value === "true" };
+    if (rawJson) {
       try {
-        const payload = {
-          name: form.get("name"),
-          api_key: form.get("api_key"),
-          enabled: form.get("enabled") === "true",
-          priority: Number(form.get("priority") || 100),
-          weight: Number(form.get("weight") || 1),
-          concurrency: Number(form.get("concurrency") || 1),
-          proxy_url: form.get("proxy_url") ? String(form.get("proxy_url")) : null,
-          notes: form.get("notes") ? String(form.get("notes")) : null,
-          quota_limit: Number(form.get("quota_limit") || 0),
-          quota_auto_disable: form.get("quota_auto_disable") === "true",
-          expires_at: localInputToTs(form.get("expires_at")),
-          expire_auto_disable: form.get("expire_auto_disable") === "true",
-          header_profile: parseOptionalJson(form.get("header_profile"), {}),
-        };
-        await api("/admin/accounts", { method: "POST", body: JSON.stringify(payload) });
-        formEl.reset();
-        show("账号已添加。");
-        await refreshAll();
+        payload.data = JSON.parse(rawJson);
       } catch (err) {
-        show(err.message, true);
+        return show("JSON 解析失败：" + err.message, true);
       }
     }
+    // 导入默认值取自选中的类型：一个类型就是一套完整的接入参数，
+    // 不用再让人手填上游和整形
+    const t = typeBySlug(document.getElementById("importPreset").value);
+    payload.defaults = {
+      auth_mode: t ? t.auth_mode : "",
+      request_shape: t ? t.request_shape : "",
+      upstream_url: t ? t.upstream_url : "",
+      domain: t ? t.domain : "",
+      type_slug: t ? t.slug : "",
+      models: splitList(document.getElementById("importModels").value),
+      proxy_url: document.getElementById("importProxy").value.trim(),
+      enabled: document.getElementById("importEnabled").value === "true",
+    };
 
-    function editField(field) {
-      return document.querySelector(`[data-edit-field="${field}"]`);
-    }
-
-    function inlineEnter(event) {
-      if (event.key === "Enter") {
-        event.currentTarget.blur();
-      }
-    }
-
-    async function patchNumber(id, field, raw) {
-      const value = Number(raw || 0);
-      if (!Number.isFinite(value)) return show(`${field} 必须是数字。`, true);
-      try {
-        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ [field]: value }) });
-        show(`账号 ${id} 的 ${field === "priority" ? "优先级" : "权重"} 已保存。`);
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-        await refreshAll();
-      }
-    }
-
-    function openEdit(id) {
-      const account = state.accounts.find((item) => item.id === id);
-      if (!account) return show(`账号 ${id} 不存在。`, true);
-      state.editingId = id;
-      document.getElementById("editTitle").textContent = `编辑账号 #${id}`;
-      document.getElementById("editSubtitle").textContent = `${account.api_key_preview || "-"} · 已用 credit ${fmt(account.total_credit)}`;
-      editField("name").value = account.name || "";
-      editField("api_key").value = "";
-      editField("priority").value = account.priority ?? 100;
-      editField("weight").value = account.weight ?? 1;
-      editField("concurrency").value = account.concurrency ?? 1;
-      editField("quota_limit").value = account.quota_limit || 0;
-      editField("quota_auto_disable").value = account.quota_auto_disable ? "true" : "false";
-      editField("expires_at").value = tsToLocalInput(account.expires_at);
-      editField("expire_auto_disable").value = account.expire_auto_disable ? "true" : "false";
-      editField("proxy_url").value = account.proxy_url || "";
-      editField("notes").value = account.notes || "";
-      editField("header_profile").value = JSON.stringify(account.header_profile || {}, null, 2);
-      document.getElementById("editModal").classList.remove("hidden");
-    }
-
-    function closeEdit() {
-      state.editingId = null;
-      document.getElementById("editModal").classList.add("hidden");
-    }
-
-    async function saveEdit(event) {
-      event.preventDefault();
-      const id = state.editingId;
-      if (!id) return;
-      const payload = {};
-      for (const field of ["name", "priority", "weight", "concurrency", "quota_limit", "proxy_url", "notes", "api_key"]) {
-        let value = editField(field).value;
-        if (field === "api_key" && !value.trim()) continue;
-        if (["priority", "weight", "concurrency", "quota_limit"].includes(field)) value = Number(value || 0);
-        if (["proxy_url", "notes"].includes(field)) value = value.trim() ? value : null;
-        payload[field] = value;
-      }
-      try {
-        payload.quota_auto_disable = editField("quota_auto_disable").value === "true";
-        payload.expires_at = localInputToTs(editField("expires_at").value);
-        payload.expire_auto_disable = editField("expire_auto_disable").value === "true";
-        payload.header_profile = parseOptionalJson(editField("header_profile").value, {});
-        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify(payload) });
-        show(`账号 ${id} 已保存。`);
-        closeEdit();
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    async function setEnabled(id, enabled) {
-      try {
-        await api(`/admin/accounts/${id}/${enabled ? "enable" : "disable"}`, { method: "POST", body: "{}" });
-        show(`账号 ${id} 已${enabled ? "启用" : "停用"}。`);
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    async function probe(id) {
-      try {
-        const result = await api(`/admin/accounts/${id}/probe`, { method: "POST", body: "{}" });
-        show(`账号 ${id} 探测成功：\n${JSON.stringify(result, null, 2)}`);
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    async function resetFailures(id) {
-      try {
-        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ reset_failures: true }) });
-        show(`账号 ${id} 已清除失败计数和冷却。`);
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    async function deleteAccount(id, name) {
-      if (!confirm(`确认删除账号 ${id}（${name}）？此操作会删除该账号累计统计。`)) return;
-      try {
-        await api(`/admin/accounts/${id}`, { method: "DELETE" });
-        show(`账号 ${id} 已删除。`);
-        closeEdit();
-        await refreshAll();
-      } catch (err) {
-        show(err.message, true);
-      }
-    }
-
-    function parseBulkKeys() {
-      const text = document.getElementById("bulkKeys").value;
-      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-      return lines.map((line, idx) => {
-        let name = `CodeBuddy-${String(idx + 1).padStart(3, "0")}`;
-        let key = line;
-        const tabParts = line.split(/\t+/).map((part) => part.trim()).filter(Boolean);
-        const commaParts = line.split(",").map((part) => part.trim()).filter(Boolean);
-        if (tabParts.length >= 2) {
-          name = tabParts[0];
-          key = tabParts[1];
-        } else if (commaParts.length >= 2) {
-          name = commaParts[0];
-          key = commaParts[1];
-        }
-        return { name, api_key: key };
-      }).filter((item) => item.api_key);
-    }
-
-    function previewImport() {
-      const items = parseBulkKeys();
-      const result = document.getElementById("importResult");
-      result.style.display = "block";
-      result.textContent = items.length
-        ? items.map((item, idx) => `${idx + 1}. ${item.name}  ${item.api_key.slice(0, 6)}...${item.api_key.slice(-4)}`).join("\n")
-        : "没有解析到可导入的 key。";
-    }
-
-    async function runImport() {
-      const items = parseBulkKeys();
-      if (!items.length) {
-        show("没有可导入的 key。", true);
-        return;
-      }
-      const defaults = {
-        enabled: document.getElementById("importEnabled").value === "true",
-        priority: Number(document.getElementById("importPriority").value || 100),
-        weight: Number(document.getElementById("importWeight").value || 1),
-        concurrency: Number(document.getElementById("importConcurrency").value || 1),
-        proxy_url: document.getElementById("importProxy").value.trim() || null,
-        notes: document.getElementById("importNotes").value.trim() || null,
-        quota_limit: Number(document.getElementById("importQuotaLimit").value || 0),
-        quota_auto_disable: document.getElementById("importQuotaAutoDisable").value === "true",
-        header_profile: {},
-      };
-      const logs = [];
-      for (const item of items) {
-        try {
-          const created = await api("/admin/accounts", { method: "POST", body: JSON.stringify({ ...defaults, ...item }) });
-          logs.push(`OK  ${item.name} -> id=${created.id}`);
-        } catch (err) {
-          logs.push(`ERR ${item.name}: ${err.message}`);
-        }
-      }
-      const result = document.getElementById("importResult");
-      result.style.display = "block";
-      result.textContent = logs.join("\n");
+    try {
+      const r = await api("/admin/accounts/import", { method: "POST", body: JSON.stringify(payload) });
+      const lines = [
+        `识别到 ${r.total} 个账号`,
+        `  新增 ${r.imported}`,
+        `  更新 ${r.updated}`,
+        `  跳过 ${r.skipped}（凭证已存在）`,
+      ];
+      if (r.errors && r.errors.length) lines.push("", "失败：", ...r.errors.map((e) => "  " + e));
+      document.getElementById("importResult").textContent = lines.join("\n");
+      show(`导入完成：新增 ${r.imported}，更新 ${r.updated}`, (r.errors || []).length > 0);
       await refreshAll();
+    } catch (err) {
+      document.getElementById("importResult").textContent = err.message;
+      show(err.message, true);
     }
+  }
 
-    async function bulkSetEnabled(enabled) {
-      const ids = checkedIds();
-      if (!ids.length) return show("请先勾选账号。", true);
-      for (const id of ids) await setEnabled(id, enabled);
+  // ── 设置 ────────────────────────────────────────────────
+  function renderSettings() {
+    const s = state.settings;
+    if (!s) return;
+    document.getElementById("modelsText").value = (s.models || []).join("\n");
+    document.getElementById("defaultModel").value = s.default_model || "";
+    const sel = document.getElementById("poolStrategy");
+    sel.innerHTML = (s.pool_strategies || []).map((p) =>
+      `<option value="${esc(p.id)}" ${p.id === s.pool_strategy ? "selected" : ""}>${esc(p.name || p.id)}</option>`).join("");
+    renderPoolStrategyHelp();
+    const catalog = s.model_catalog || [];
+    document.getElementById("catalogBox").innerHTML = catalog.length
+      ? `<div class="label">可选模型（点击加入清单）</div>` +
+        catalog.map((m) => `<button type="button" class="mini" style="margin:2px 3px 0 0"
+          onclick="addCatalogModel('${esc(m.id)}')">${esc(m.id)}</button>`).join("")
+      : "";
+  }
+  function renderPoolStrategyHelp() {
+    const s = state.settings; if (!s) return;
+    const cur = document.getElementById("poolStrategy").value;
+    const info = (s.pool_strategies || []).find((p) => p.id === cur);
+    document.getElementById("strategyHelp").textContent = info ? (info.description || "") : "";
+  }
+  function addCatalogModel(id) {
+    const box = document.getElementById("modelsText");
+    const list = splitList(box.value);
+    if (!list.includes(id)) list.push(id);
+    box.value = list.join("\n");
+  }
+  async function saveModelSettings() {
+    try {
+      state.settings = await api("/admin/settings", { method: "PATCH", body: JSON.stringify({
+        models: splitList(document.getElementById("modelsText").value),
+        default_model: document.getElementById("defaultModel").value.trim(),
+        pool_strategy: document.getElementById("poolStrategy").value,
+      })});
+      renderSettings(); show("设置已保存");
+    } catch (err) { show(err.message, true); }
+  }
+  function renderUsage() {
+    const origin = location.origin;
+    document.getElementById("usageBox").innerHTML = `
+      <dt>Base URL</dt><dd><code class="inline">${origin}/v1</code></dd>
+      <dt>鉴权</dt><dd><code class="inline">Authorization: Bearer &lt;CODEBUDDY2API_API_KEY&gt;</code></dd>
+      <dt>模型列表</dt><dd><code class="inline">GET ${origin}/v1/models</code></dd>
+      <dt>对话</dt><dd><code class="inline">POST ${origin}/v1/chat/completions</code></dd>
+      <dt>健康检查</dt><dd><code class="inline">GET ${origin}/health</code></dd>`;
+  }
+
+  // ── 拉数据 ──────────────────────────────────────────────
+  async function refreshCredits() {
+    show("正在刷新余额…");
+    try { await api("/admin/credits/refresh", { method: "POST" }); show("余额已刷新"); await refreshAll(); }
+    catch (err) { show(err.message, true); }
+  }
+  // 未鉴权时的空状态。以前这里直接 return，表格一片空白、提示还是个会自动消失的
+  // toast——错过就完全没有线索，看起来就像"账号池不见了"。
+  function showAuthNeeded(message) {
+    document.getElementById("accountRows").innerHTML =
+      `<tr><td colspan="9" style="padding:22px;text-align:center;color:var(--ink-2)">
+         ${esc(message)}<br>
+         <span class="row-sub">口令在服务端的 CODEBUDDY2API_ADMIN_KEY 里</span>
+       </td></tr>`;
+    document.getElementById("poolCount").textContent = "—";
+    const box = document.getElementById("authSection");
+    box.style.borderColor = "var(--warn)";
+    document.getElementById("authHint").textContent = message;
+    document.getElementById("adminKey").focus();
+  }
+
+  async function refreshAll() {
+    if (!adminKey()) {
+      showAuthNeeded("请先在上方填写管理口令");
+      show("请先填写管理口令", true);
+      return;
     }
-
-    async function bulkProbe() {
-      const ids = checkedIds();
-      if (!ids.length) return show("请先勾选账号。", true);
-      const logs = [];
-      for (const id of ids) {
-        try {
-          await api(`/admin/accounts/${id}/probe`, { method: "POST", body: "{}" });
-          logs.push(`OK  ${id}`);
-        } catch (err) {
-          logs.push(`ERR ${id}: ${err.message}`);
-        }
+    try {
+      const [accounts, stats, settings, types, models] = await Promise.all([
+        api("/admin/accounts"), api("/admin/stats"), api("/admin/settings"),
+        api("/admin/types"), api("/admin/models"),
+      ]);
+      state.accounts = accounts.accounts || [];
+      state.stats = stats;
+      state.settings = settings;
+      state.types = types.types || [];
+      state.catalog = models.models || [];
+      document.getElementById("authSection").style.borderColor = "";
+      document.getElementById("authHint").textContent =
+        "口令只存在浏览器本地（localStorage），用于调用 /admin 接口。";
+      renderStats(); renderCredits(); renderProblems(); renderAccounts(); renderSettings(); renderUsage();
+      renderTypes(); renderCatalog(); renderTypeOptions();
+      const bearer = state.accounts.filter((a) => a.auth_mode === "bearer").length;
+      document.getElementById("instanceSub").textContent =
+        `${state.accounts.length} 个账号 · ${bearer} 个 OAuth 凭证号`;
+    } catch (err) {
+      if (/401|invalid|unauthor/i.test(err.message)) {
+        showAuthNeeded("管理口令不对，请重新填写");
       }
-      show(logs.join("\n"));
-      await refreshAll();
+      show(err.message, true);
     }
+  }
 
-    async function bulkReset() {
-      const ids = checkedIds();
-      if (!ids.length) return show("请先勾选账号。", true);
-      for (const id of ids) {
-        await api(`/admin/accounts/${id}`, { method: "PATCH", body: JSON.stringify({ reset_failures: true }) });
-      }
-      show(`已处理 ${ids.length} 个账号。`);
-      await refreshAll();
-    }
-
-    refreshAll();
-  </script>
-</body>
-</html>
+  document.getElementById("adminKey").value = adminKey();
+  renderUsage();
+  // 无论有没有口令都走 refreshAll：没口令时它负责渲染出「请填口令」的空状态，
+  // 以前这里用 if 挡掉，导致没口令时表格一片空白、毫无提示。
+  refreshAll();
+</script>

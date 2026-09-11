@@ -15,6 +15,7 @@ type Lease struct {
 
 type Pool struct {
 	store                *Store
+	types                *TypeRegistry
 	fallbackModels       []string
 	fallbackPoolStrategy string
 	mu                   sync.Mutex
@@ -22,25 +23,56 @@ type Pool struct {
 	cursor               int
 }
 
-func NewPool(store *Store, fallbackModels []string, fallbackPoolStrategy string) *Pool {
+func NewPool(store *Store, types *TypeRegistry, fallbackModels []string, fallbackPoolStrategy string) *Pool {
+	if types == nil {
+		types = NewTypeRegistry()
+	}
 	return &Pool{
 		store:                store,
+		types:                types,
 		fallbackModels:       append([]string{}, fallbackModels...),
 		fallbackPoolStrategy: NormalizePoolStrategy(fallbackPoolStrategy, PoolStrategyRoundRobin),
 		inFlight:             make(map[int64]int),
 	}
 }
 
-func (p *Pool) Acquire() (Lease, error) {
+// ErrNoAccountForModel 有可用账号，但没有一个声明支持这个模型。
+// 和「一个号都没有」分开报，否则合并面板后排查起来全是瞎猜。
+var ErrNoAccountForModel = errors.New("no account serves the requested model")
+
+// Acquire 取一个能承接该模型的账号。
+// model 传空表示不限（老调用方行为不变）。
+func (p *Pool) Acquire(model string) (Lease, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	candidates, err := p.store.SchedulableAccounts()
+	all, err := p.store.SchedulableAccounts()
 	if err != nil {
 		return Lease{}, err
 	}
-	if len(candidates) == 0 {
+	if len(all) == 0 {
 		return Lease{}, ErrNoAccountAvailable
+	}
+
+	// 模型路由：能接哪些模型由账号类型决定，账号自己声明了才以账号为准。
+	// 这是「一个实例同时挂 CN 和 intl 账号」能成立的前提——
+	// glm-5.1 的请求不能被路由到只有免费 deepseek 的 intl 凭证号上。
+	//
+	// 类型停用等同于把它名下的号整体下线：停用一个渠道是运维动作，
+	// 要能一键生效，而不是去逐个关号。
+	candidates := make([]Account, 0, len(all))
+	for _, account := range all {
+		typ := p.types.TypeOf(account)
+		if typ != nil && !typ.Enabled {
+			continue
+		}
+		if !servesModel(account, typ, model) {
+			continue
+		}
+		candidates = append(candidates, account)
+	}
+	if len(candidates) == 0 {
+		return Lease{}, ErrNoAccountForModel
 	}
 
 	strategy := p.poolStrategy()
@@ -48,6 +80,11 @@ func (p *Pool) Acquire() (Lease, error) {
 		return p.acquireFillFirst(candidates)
 	}
 	return p.acquireRoundRobin(candidates)
+}
+
+// priorityOf 是账号在池子里的实际优先级（叠加了类型优先级）。
+func (p *Pool) priorityOf(account Account) int {
+	return effectivePriority(account, p.types.TypeOf(account))
 }
 
 func (p *Pool) poolStrategy() string {
@@ -61,7 +98,7 @@ func (p *Pool) poolStrategy() string {
 func (p *Pool) acquireRoundRobin(candidates []Account) (Lease, error) {
 	priorities := make(map[int]struct{})
 	for _, account := range candidates {
-		priorities[account.Priority] = struct{}{}
+		priorities[p.priorityOf(account)] = struct{}{}
 	}
 	sortedPriorities := make([]int, 0, len(priorities))
 	for priority := range priorities {
@@ -72,7 +109,7 @@ func (p *Pool) acquireRoundRobin(candidates []Account) (Lease, error) {
 	for _, priority := range sortedPriorities {
 		var samePriority []Account
 		for _, account := range candidates {
-			if account.Priority == priority {
+			if p.priorityOf(account) == priority {
 				samePriority = append(samePriority, account)
 			}
 		}
@@ -96,8 +133,8 @@ func (p *Pool) acquireRoundRobin(candidates []Account) (Lease, error) {
 func (p *Pool) acquireFillFirst(candidates []Account) (Lease, error) {
 	sort.Slice(candidates, func(i, j int) bool {
 		left, right := candidates[i], candidates[j]
-		if left.Priority != right.Priority {
-			return left.Priority > right.Priority
+		if lp, rp := p.priorityOf(left), p.priorityOf(right); lp != rp {
+			return lp > rp
 		}
 		if left.Weight != right.Weight {
 			return left.Weight > right.Weight

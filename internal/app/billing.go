@@ -51,8 +51,8 @@ type CreditPackage struct {
 	CycleEnd *int64
 }
 
-func (c *UpstreamClient) billingURL() (string, error) {
-	base, err := url.Parse(c.cfg.UpstreamURL)
+func (c *UpstreamClient) billingURL(account Account) (string, error) {
+	base, err := url.Parse(c.ProfileFor(account).UpstreamURL)
 	if err != nil {
 		return "", err
 	}
@@ -63,7 +63,7 @@ func (c *UpstreamClient) billingURL() (string, error) {
 
 // FetchCredits 查询某账号的真实积分余额（不消耗积分）。
 func (c *UpstreamClient) FetchCredits(account Account) (CreditsInfo, error) {
-	endpoint, err := c.billingURL()
+	endpoint, err := c.billingURL(account)
 	if err != nil {
 		return CreditsInfo{}, err
 	}

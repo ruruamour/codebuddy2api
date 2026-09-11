@@ -28,6 +28,16 @@ type Account struct {
 	Notes               sql.NullString `json:"-"`
 	ConsecutiveFailures int            `json:"consecutive_failures"`
 	CooldownUntil       sql.NullInt64  `json:"-"`
+	// 账号级上游覆盖：空表示回落到实例级配置（老账号全空，行为不变）。
+	// 有了这几列，一个实例里才能同时放 ck_ 号和 OAuth 凭证号。
+	AuthMode     sql.NullString `json:"-"`
+	UpstreamURL  sql.NullString `json:"-"`
+	Domain       sql.NullString `json:"-"`
+	RequestShape sql.NullString `json:"-"`
+	Models       sql.NullString `json:"-"`
+	// TypeSlug 是账号所属的类型（渠道）。常规配置走类型，上面那几个覆盖字段
+	// 只在个别号要偏离本类型时才填。
+	TypeSlug sql.NullString `json:"-"`
 }
 
 type PublicAccount struct {
@@ -70,9 +80,22 @@ type PublicAccount struct {
 	CreditsPackages     *string        `json:"credits_packages"`
 	CreditsError        *string        `json:"credits_error"`
 	CreditsPaused       bool           `json:"credits_paused"`
-	CreatedAt           int64          `json:"created_at"`
-	UpdatedAt           int64          `json:"updated_at"`
-	InFlight            int            `json:"in_flight,omitempty"`
+	// 账号级上游配置（面板要显示/编辑）
+	AuthMode     string   `json:"auth_mode"`
+	UpstreamURL  *string  `json:"upstream_url"`
+	Domain       *string  `json:"domain"`
+	RequestShape string   `json:"request_shape"`
+	Models       []string `json:"models"`
+	TypeSlug     string   `json:"type_slug"`
+	// EffectiveModels 是这个号实际能接的模型（账号没声明就是类型的），面板直接显示，
+	// 省得操作者自己在脑子里跑一遍回落规则
+	EffectiveModels []string `json:"effective_models"`
+	// 凭证只报状态，明文永不出库
+	HasRefreshToken bool   `json:"has_refresh_token"`
+	TokenExpiresAt  *int64 `json:"token_expires_at"`
+	CreatedAt       int64  `json:"created_at"`
+	UpdatedAt       int64  `json:"updated_at"`
+	InFlight        int    `json:"in_flight,omitempty"`
 }
 
 type AccountCreate struct {
@@ -89,6 +112,18 @@ type AccountCreate struct {
 	QuotaAutoDisable  *bool          `json:"quota_auto_disable"`
 	ExpiresAt         *int64         `json:"expires_at"`
 	ExpireAutoDisable *bool          `json:"expire_auto_disable"`
+	// RefreshToken/TokenExpiresAt 是 Bearer 模式下自助续期的种子。
+	// 建号时不传的话，账号活到 access token 过期那天就会因为
+	// 「剩余寿命不足但没存 refresh token」被 ensureFreshToken 拒绝续期。
+	RefreshToken   *string `json:"refresh_token"`
+	TokenExpiresAt *int64  `json:"token_expires_at"`
+	// 账号级上游覆盖，留空回落到实例级配置。
+	AuthMode     *string  `json:"auth_mode"`
+	UpstreamURL  *string  `json:"upstream_url"`
+	Domain       *string  `json:"domain"`
+	RequestShape *string  `json:"request_shape"`
+	Models       []string `json:"models"`
+	TypeSlug     *string  `json:"type_slug"`
 }
 
 type AccountPatch struct {
@@ -107,6 +142,17 @@ type AccountPatch struct {
 	ExpiresAt         *int64         `json:"expires_at"`
 	ExpireAutoDisable *bool          `json:"expire_auto_disable"`
 	ResetUsage        bool           `json:"reset_usage"`
+	// 账号级上游覆盖；传空字符串表示清掉覆盖、回落到实例级。
+	AuthMode     *string  `json:"auth_mode"`
+	UpstreamURL  *string  `json:"upstream_url"`
+	Domain       *string  `json:"domain"`
+	RequestShape *string  `json:"request_shape"`
+	Models       []string `json:"models"`
+	TypeSlug     *string  `json:"type_slug"`
+	// RefreshToken 允许给已有账号补种子（老账号建号时没有这一列）。
+	RefreshToken *string `json:"refresh_token"`
+	// TokenExpiresAt 用于非 JWT 凭证手工维护到期时间；不传则从新 api_key 的 JWT 推导。
+	TokenExpiresAt *int64 `json:"token_expires_at"`
 }
 
 type Stats struct {
@@ -187,6 +233,14 @@ CREATE TABLE IF NOT EXISTS accounts (
   credits_error TEXT,
   credits_packages TEXT,
   credits_paused INTEGER NOT NULL DEFAULT 0,
+  refresh_token TEXT,
+  token_expires_at INTEGER,
+  auth_mode TEXT,
+  upstream_url TEXT,
+  domain TEXT,
+  request_shape TEXT,
+  models TEXT,
+  type_slug TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -196,7 +250,7 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 );
-`)
+` + accountTypesDDL + catalogDDL)
 	if err != nil {
 		return err
 	}
@@ -218,6 +272,14 @@ CREATE TABLE IF NOT EXISTS settings (
 		{"credits_error", "ALTER TABLE accounts ADD COLUMN credits_error TEXT"},
 		{"credits_packages", "ALTER TABLE accounts ADD COLUMN credits_packages TEXT"},
 		{"credits_paused", "ALTER TABLE accounts ADD COLUMN credits_paused INTEGER NOT NULL DEFAULT 0"},
+		{"refresh_token", "ALTER TABLE accounts ADD COLUMN refresh_token TEXT"},
+		{"token_expires_at", "ALTER TABLE accounts ADD COLUMN token_expires_at INTEGER"},
+		{"auth_mode", "ALTER TABLE accounts ADD COLUMN auth_mode TEXT"},
+		{"upstream_url", "ALTER TABLE accounts ADD COLUMN upstream_url TEXT"},
+		{"domain", "ALTER TABLE accounts ADD COLUMN domain TEXT"},
+		{"request_shape", "ALTER TABLE accounts ADD COLUMN request_shape TEXT"},
+		{"models", "ALTER TABLE accounts ADD COLUMN models TEXT"},
+		{"type_slug", "ALTER TABLE accounts ADD COLUMN type_slug TEXT"},
 	} {
 		if err := s.ensureColumn("accounts", migration.name, migration.ddl); err != nil {
 			return err
@@ -252,44 +314,112 @@ func (s *Store) ensureColumn(table string, column string, ddl string) error {
 	return err
 }
 
-func (s *Store) ModelSettings(fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
+// readModelSettingsRow 读 settings 里那行 JSON。
+//
+// 模型表落库之后，这一行只剩 default_model 和 pool_strategy 还在用；models 字段留着
+// 是给 Bootstrap 读旧口径用的——迁移那一刻模型表还是空的，启用列表只有这里有。
+func (s *Store) readModelSettingsRow() ModelSettings {
 	var raw string
-	err := s.db.QueryRow("SELECT value FROM settings WHERE key = ?", "model_settings").Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback), PoolStrategy: fallbackPoolStrategy}, fallback, fallbackPoolStrategy)
-	}
-	if err != nil {
-		return ModelSettings{}, err
+	if err := s.db.QueryRow("SELECT value FROM settings WHERE key = ?", "model_settings").Scan(&raw); err != nil {
+		return ModelSettings{}
 	}
 	var settings ModelSettings
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
-		return NormalizeModelSettings(ModelSettings{Models: ModelSeed(fallback), PoolStrategy: fallbackPoolStrategy}, fallback, fallbackPoolStrategy)
+		return ModelSettings{}
 	}
-	return NormalizeModelSettings(settings, fallback, fallbackPoolStrategy)
+	return settings
 }
 
-func (s *Store) SaveModelSettings(payload ModelSettings, fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
-	settings, err := NormalizeModelSettings(payload, fallback, fallbackPoolStrategy)
+func (s *Store) ModelSettings(fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
+	stored := s.readModelSettingsRow()
+	catalog, err := s.ListCatalog()
 	if err != nil {
 		return ModelSettings{}, err
 	}
+	if len(catalog) == 0 {
+		// 模型表还没建立（Bootstrap 之前，或空库首启）：按老口径走。
+		// 迁移时读到的就是这一支，新旧对外列表才能对得上。
+		if len(stored.Models) == 0 {
+			stored.Models = ModelSeed(fallback)
+		}
+		if stored.PoolStrategy == "" {
+			stored.PoolStrategy = fallbackPoolStrategy
+		}
+		return NormalizeModelSettings(stored, fallback, fallbackPoolStrategy)
+	}
+
+	// 模型表就位后，「启用哪些模型」只认表里的 enabled 列。
+	// 这里不再回落到 ModelSeed：操作者把模型全停了就该是全停，
+	// 悄悄把默认模型塞回来只会让人以为面板没保存成功。
+	models := make([]string, 0, len(catalog))
+	info := make([]ModelInfo, 0, len(catalog))
+	for _, item := range catalog {
+		info = append(info, ModelInfo{
+			ID:              item.ID,
+			Name:            item.Name,
+			Credits:         item.Credits,
+			MaxInputTokens:  item.MaxInputTokens,
+			MaxOutputTokens: item.MaxOutputTokens,
+			SupportsImages:  item.SupportsImages,
+		})
+		if item.Enabled {
+			models = append(models, item.ID)
+		}
+	}
+	defaultModel := strings.TrimSpace(stored.DefaultModel)
+	if defaultModel == "" || !containsString(models, defaultModel) {
+		defaultModel = ""
+		if len(models) > 0 {
+			defaultModel = models[0]
+		}
+	}
+	return ModelSettings{
+		Models:         models,
+		DefaultModel:   defaultModel,
+		PoolStrategy:   NormalizePoolStrategy(stored.PoolStrategy, fallbackPoolStrategy),
+		ModelCatalog:   info,
+		PoolStrategies: CodeBuddyPoolStrategies,
+	}, nil
+}
+
+func (s *Store) SaveModelSettings(payload ModelSettings, fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
+	catalog, err := s.ListCatalog()
+	if err != nil {
+		return ModelSettings{}, err
+	}
+	if len(catalog) > 0 {
+		// 勾选状态写回模型表；面板传来的 models 就是「勾了哪些」
+		known := make(map[string]struct{}, len(catalog))
+		for _, item := range catalog {
+			known[item.ID] = struct{}{}
+		}
+		enabled := make([]string, 0, len(payload.Models))
+		for _, id := range normalizeModelIDs(payload.Models) {
+			if _, ok := known[id]; !ok {
+				return ModelSettings{}, &ValidationError{Message: "模型表里没有这个模型，请先在模型表新增：" + id}
+			}
+			enabled = append(enabled, id)
+		}
+		if err := s.SetCatalogEnabled(enabled); err != nil {
+			return ModelSettings{}, err
+		}
+	}
 	raw, err := json.Marshal(ModelSettings{
-		Models:       settings.Models,
-		DefaultModel: settings.DefaultModel,
-		PoolStrategy: settings.PoolStrategy,
+		Models:       normalizeModelIDs(payload.Models),
+		DefaultModel: strings.TrimSpace(payload.DefaultModel),
+		PoolStrategy: NormalizePoolStrategy(payload.PoolStrategy, fallbackPoolStrategy),
 	})
 	if err != nil {
 		return ModelSettings{}, err
 	}
-	_, err = s.db.Exec(`
+	if _, err := s.db.Exec(`
 INSERT INTO settings (key, value, updated_at)
 VALUES (?, ?, ?)
 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
-		"model_settings", string(raw), now())
-	if err != nil {
+		"model_settings", string(raw), now()); err != nil {
 		return ModelSettings{}, err
 	}
-	return settings, nil
+	return s.ModelSettings(fallback, fallbackPoolStrategy)
 }
 
 func (s *Store) AddAccount(payload AccountCreate) (int64, error) {
@@ -319,16 +449,52 @@ func (s *Store) AddAccount(payload AccountCreate) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// token_expires_at 不必手填：Bearer 模式下 access token 就是 JWT，exp 自己解得出来。
+	tokenExpiresAt := payload.TokenExpiresAt
+	if tokenExpiresAt == nil {
+		if exp := JWTExpiry(apiKey); exp > 0 {
+			tokenExpiresAt = &exp
+		}
+	}
+	// 没显式指定认证方式时按凭证形态判断：JWT 是 OAuth 凭证，ck_ 是 API key。
+	// 这样同一个面板里粘哪种凭证都能直接用，不用先去想实例是什么模式。
+	if payload.AuthMode == nil || strings.TrimSpace(*payload.AuthMode) == "" {
+		if detected := DetectAuthMode(apiKey); detected != "" {
+			payload.AuthMode = &detected
+		}
+	}
+	// 同理，没指定类型就按凭证形态和上游归一个。归错比不归更糟，所以 DetectTypeSlug
+	// 认不出来时返回空串，账号保持未归类、继续走实例级配置。
+	if payload.TypeSlug == nil || strings.TrimSpace(*payload.TypeSlug) == "" {
+		domain, upstream := "", ""
+		if payload.Domain != nil {
+			domain = *payload.Domain
+		}
+		if payload.UpstreamURL != nil {
+			upstream = *payload.UpstreamURL
+		}
+		if slug := DetectTypeSlug(apiKey, domain, upstream); slug != "" {
+			if exists, err := s.TypeSlugExists(slug); err == nil && exists {
+				payload.TypeSlug = &slug
+			}
+		}
+	}
 	ts := now()
 	result, err := s.db.Exec(`
 INSERT INTO accounts (
   name, api_key, enabled, status, priority, weight, concurrency,
   proxy_url, header_profile, notes, quota_limit, quota_auto_disable,
-  expires_at, expire_auto_disable, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  expires_at, expire_auto_disable, refresh_token, token_expires_at,
+  auth_mode, upstream_url, domain, request_shape, models, type_slug,
+  created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		name, apiKey, boolInt(enabled), status, priority, weight, concurrency,
 		nullableString(payload.ProxyURL), string(profile), nullableString(payload.Notes),
-		quotaLimit, boolInt(quotaAutoDisable), nullableInt64(payload.ExpiresAt), boolInt(expireAutoDisable), ts, ts)
+		quotaLimit, boolInt(quotaAutoDisable), nullableInt64(payload.ExpiresAt), boolInt(expireAutoDisable),
+		nullableString(payload.RefreshToken), nullableInt64(tokenExpiresAt),
+		nullableString(payload.AuthMode), nullableString(payload.UpstreamURL),
+		nullableString(payload.Domain), nullableString(payload.RequestShape),
+		encodeModelList(payload.Models), nullableString(payload.TypeSlug), ts, ts)
 	if err != nil {
 		return 0, err
 	}
@@ -353,6 +519,45 @@ func (s *Store) PatchAccount(id int64, payload AccountPatch) (bool, error) {
 		}
 		sets = append(sets, "api_key = ?")
 		args = append(args, apiKey)
+		// 换凭证时必须同步改到期时间，而且要无条件改：
+		// 新凭证不是 JWT（换成 ck_ key，或非 JWT 的 bearer token）时若保留旧值，
+		// 面板会显示上一份凭证的到期日，续期判断也会据此误判。解不出就置 NULL。
+		sets = append(sets, "token_expires_at = ?")
+		if exp := JWTExpiry(apiKey); exp > 0 {
+			args = append(args, exp)
+		} else {
+			args = append(args, nil)
+		}
+	}
+	if payload.TokenExpiresAt != nil {
+		// 显式传了就以传入的为准，覆盖上面从 JWT 推导的结果
+		sets = append(sets, "token_expires_at = ?")
+		args = append(args, nullableInt64(payload.TokenExpiresAt))
+	}
+	if payload.RefreshToken != nil {
+		sets = append(sets, "refresh_token = ?")
+		args = append(args, nullableString(payload.RefreshToken))
+	}
+	// 账号级上游覆盖：传空字符串即清除覆盖、回落到实例级配置
+	for _, override := range []struct {
+		column string
+		value  *string
+	}{
+		{"auth_mode", payload.AuthMode},
+		{"upstream_url", payload.UpstreamURL},
+		{"domain", payload.Domain},
+		{"request_shape", payload.RequestShape},
+		{"type_slug", payload.TypeSlug},
+	} {
+		if override.value == nil {
+			continue
+		}
+		sets = append(sets, override.column+" = ?")
+		args = append(args, nullableString(override.value))
+	}
+	if payload.Models != nil {
+		sets = append(sets, "models = ?")
+		args = append(args, encodeModelList(payload.Models))
 	}
 	if payload.Enabled != nil {
 		sets = append(sets, "enabled = ?", "status = ?")
@@ -473,7 +678,8 @@ func (s *Store) DeleteAccount(id int64) (bool, error) {
 func (s *Store) GetAccount(id int64) (*Account, error) {
 	row := s.db.QueryRow(`
 SELECT id, name, api_key, enabled, status, priority, weight, concurrency, proxy_url,
-       header_profile, notes, consecutive_failures, cooldown_until
+       header_profile, notes, consecutive_failures, cooldown_until,
+       auth_mode, upstream_url, domain, request_shape, models, type_slug
 FROM accounts WHERE id = ?`, id)
 	account, err := scanAccount(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -492,7 +698,9 @@ SELECT id, name, api_key, enabled, status, priority, weight, concurrency,
        quota_auto_disable, expires_at, expire_auto_disable,
        last_disable_reason, last_disable_at, created_at, updated_at,
        credits_remaining, credits_total, credits_cycle_end, credits_checked_at,
-       credits_error, credits_paused, credits_packages
+       credits_error, credits_paused, credits_packages,
+       auth_mode, upstream_url, domain, request_shape, models, type_slug,
+       refresh_token IS NOT NULL AND refresh_token <> '', token_expires_at
 FROM accounts ORDER BY priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -515,7 +723,8 @@ func (s *Store) SchedulableAccounts() ([]Account, error) {
 	s.autoPauseDueAccounts(ts)
 	rows, err := s.db.Query(`
 SELECT id, name, api_key, enabled, status, priority, weight, concurrency, proxy_url,
-       header_profile, notes, consecutive_failures, cooldown_until
+       header_profile, notes, consecutive_failures, cooldown_until,
+       auth_mode, upstream_url, domain, request_shape, models, type_slug
 FROM accounts
 WHERE enabled = 1
   AND credits_paused = 0
@@ -683,6 +892,12 @@ func scanAccount(row rowScanner) (*Account, error) {
 		&account.Notes,
 		&account.ConsecutiveFailures,
 		&account.CooldownUntil,
+		&account.AuthMode,
+		&account.UpstreamURL,
+		&account.Domain,
+		&account.RequestShape,
+		&account.Models,
+		&account.TypeSlug,
 	); err != nil {
 		return nil, err
 	}
@@ -694,6 +909,9 @@ func scanAccount(row rowScanner) (*Account, error) {
 }
 
 func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
+	var authMode, upstreamURL, domain, requestShape, models, typeSlug sql.NullString
+	var tokenExpiresAt sql.NullInt64
+	var hasRefresh int
 	var data PublicAccount
 	var apiKey string
 	var enabled int
@@ -757,6 +975,14 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 		&creditsError,
 		&creditsPaused,
 		&creditsPackages,
+		&authMode,
+		&upstreamURL,
+		&domain,
+		&requestShape,
+		&models,
+		&typeSlug,
+		&hasRefresh,
+		&tokenExpiresAt,
 	); err != nil {
 		return data, err
 	}
@@ -790,7 +1016,34 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	data.CreditsError = nullStringPtr(creditsError)
 	data.CreditsPackages = nullStringPtr(creditsPackages)
 	data.CreditsPaused = creditsPaused == 1
+	data.AuthMode = strings.TrimSpace(authMode.String)
+	data.UpstreamURL = nullStringPtr(upstreamURL)
+	data.Domain = nullStringPtr(domain)
+	data.RequestShape = strings.TrimSpace(requestShape.String)
+	data.Models = decodeModelList(models.String)
+	data.TypeSlug = strings.TrimSpace(typeSlug.String)
+	data.HasRefreshToken = hasRefresh == 1
+	data.TokenExpiresAt = nullIntPtr(tokenExpiresAt)
 	return data, nil
+}
+
+// RefreshTokenFor 读取账号的 refresh token（仅 Bearer 模式用）。
+func (s *Store) RefreshTokenFor(id int64) (string, error) {
+	var token sql.NullString
+	err := s.db.QueryRow("SELECT refresh_token FROM accounts WHERE id = ?", id).Scan(&token)
+	return token.String, err
+}
+
+// SaveAccessToken 保存刷新后的 access/refresh token。
+func (s *Store) SaveAccessToken(id int64, access, refresh string, expiresAt int64) error {
+	ts := now()
+	_, err := s.db.Exec(`UPDATE accounts
+SET api_key = ?,
+    refresh_token = COALESCE(NULLIF(?, ''), refresh_token),
+    token_expires_at = COALESCE(NULLIF(?, 0), token_expires_at),
+    updated_at = ?
+WHERE id = ?`, access, refresh, expiresAt, ts, id)
+	return err
 }
 
 // SaveCredits 记录一次余额查询结果。errMsg 非空时只记错误，不动余额字段。

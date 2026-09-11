@@ -22,14 +22,28 @@ type Server struct {
 	store    *Store
 	pool     *Pool
 	upstream *UpstreamClient
+	types    *TypeRegistry
 }
 
 func NewServer(cfg Config, store *Store) *Server {
+	types := NewTypeRegistry()
+	// 类型表可能还没建好（老库首启、或测试里直接 NewServer）；灌不进去就先空着，
+	// 空注册表等于「所有账号都未归类」，正好是加类型之前的行为。
+	_ = store.LoadTypeRegistry(types)
 	return &Server{
 		cfg:      cfg,
 		store:    store,
-		pool:     NewPool(store, cfg.Models, cfg.PoolStrategy),
-		upstream: NewUpstreamClient(cfg),
+		types:    types,
+		pool:     NewPool(store, types, cfg.Models, cfg.PoolStrategy),
+		upstream: NewUpstreamClient(cfg, types),
+	}
+}
+
+// reloadTypes 在类型表被改动后刷新进程内缓存。
+// 所有写类型的入口都必须调它，否则面板上改完、转发那边还在用旧配置。
+func (s *Server) reloadTypes() {
+	if err := s.store.LoadTypeRegistry(s.types); err != nil {
+		log.Printf("types: 刷新缓存失败: %v", err)
 	}
 }
 
@@ -42,9 +56,15 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/v1/chat/completions", s.withClientAuth(s.handleChatCompletions))
 	mux.HandleFunc("/admin/accounts", s.withAdminAuth(s.handleAdminAccounts))
 	mux.HandleFunc("/admin/accounts/", s.withAdminAuth(s.handleAdminAccountByID))
+	mux.HandleFunc("/admin/accounts/export", s.withAdminAuth(s.handleAccountsExport))
+	mux.HandleFunc("/admin/accounts/import", s.withAdminAuth(s.handleAccountsImport))
 	mux.HandleFunc("/admin/stats", s.withAdminAuth(s.handleAdminStats))
 	mux.HandleFunc("/admin/credits/refresh", s.withAdminAuth(s.handleCreditsRefresh))
 	mux.HandleFunc("/admin/settings", s.withAdminAuth(s.handleAdminSettings))
+	mux.HandleFunc("/admin/types", s.withAdminAuth(s.handleAdminTypes))
+	mux.HandleFunc("/admin/types/", s.withAdminAuth(s.handleAdminTypeBySlug))
+	mux.HandleFunc("/admin/models", s.withAdminAuth(s.handleAdminModels))
+	mux.HandleFunc("/admin/models/", s.withAdminAuth(s.handleAdminModelByID))
 	return requestLogger(mux)
 }
 
@@ -90,6 +110,13 @@ func (s *Server) RefreshCredits(ctx context.Context) map[string]any {
 		full, err := s.store.GetAccount(acc.ID)
 		if err != nil || full == nil {
 			continue
+		}
+		// Bearer 模式：查余额前顺手确保 token 没快过期（真正的巡检在
+		// StartTokenRefreshLoop 里，这里只是避免拿一个将死的 token 去查余额）
+		if s.refreshAccountToken(acc.ID) {
+			if again, err := s.store.GetAccount(acc.ID); err == nil && again != nil {
+				full = again
+			}
 		}
 		info, err := s.upstream.FetchCredits(*full)
 		if err != nil {
@@ -202,6 +229,10 @@ func (s *Server) handleAdminUI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// 面板随二进制走，版本更新就必须立刻生效。
+	// 以前不发缓存头，浏览器按启发式缓存 HTML，部署后仍显示旧面板——
+	// 表现就是"新加的东西怎么没有"，很难往缓存上想。
+	w.Header().Set("Cache-Control", "no-store, must-revalidate")
 	_, _ = w.Write(data)
 }
 
@@ -262,16 +293,23 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if s.cfg.DebugRequests {
 		log.Printf("chat.request model=%v stream=%v keys=%v", body["model"], body["stream"], mapKeys(body))
 	}
-	lease, err := s.pool.Acquire()
+	requestedModel := stringValue(body["model"], "")
+	lease, err := s.pool.Acquire(requestedModel)
 	if err != nil {
 		status := http.StatusServiceUnavailable
 		errorType := "no_account_available"
-		if errors.Is(err, ErrAllAccountsBusy) {
+		switch {
+		case errors.Is(err, ErrAllAccountsBusy):
 			errorType = "account_concurrency_exhausted"
+		case errors.Is(err, ErrNoAccountForModel):
+			errorType = "no_account_for_model"
+			err = fmt.Errorf("没有账号声明支持模型 %q", requestedModel)
 		}
 		writeOpenAIError(w, status, err.Error(), errorType)
 		return
 	}
+	// 兜底：token 已过期就先续再用（正常由后台巡检提前换掉，这里只挡巡检空窗）
+	lease.Account = s.ensureUsableToken(lease.Account)
 	stream := boolValue(body["stream"])
 	if stream {
 		s.streamResponse(w, r.Context(), lease, body)
@@ -340,7 +378,9 @@ func (s *Server) handleAdminAccounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inFlight := s.pool.Snapshot()
-		writeJSON(w, http.StatusOK, map[string]any{"accounts": attachInFlight(accounts, inFlight)})
+		writeJSON(w, http.StatusOK, map[string]any{
+			"accounts": s.attachEffectiveModels(attachInFlight(accounts, inFlight)),
+		})
 	case http.MethodPost:
 		var payload AccountCreate
 		if err := decodeJSON(r, &payload); err != nil {
@@ -398,6 +438,17 @@ func (s *Server) handleAdminAccountByID(w http.ResponseWriter, r *http.Request) 
 		s.setAccountEnabled(w, id, false)
 	case r.Method == http.MethodPost && action == "probe":
 		s.probeAccount(w, r.Context(), id)
+	case r.Method == http.MethodPost && action == "diagnose":
+		account, err := s.store.GetAccount(id)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+			return
+		}
+		if account == nil {
+			writeJSON(w, http.StatusNotFound, map[string]any{"detail": "account not found"})
+			return
+		}
+		writeJSON(w, http.StatusOK, s.Diagnose(r.Context(), *account))
 	default:
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
 	}
@@ -426,7 +477,8 @@ func (s *Server) probeAccount(w http.ResponseWriter, ctx context.Context, id int
 		writeJSON(w, http.StatusNotFound, map[string]any{"detail": "account not found"})
 		return
 	}
-	response, usage, err := s.upstream.Probe(ctx, *account)
+	fresh := s.ensureUsableToken(*account)
+	response, usage, err := s.upstream.Probe(ctx, fresh)
 	if err != nil {
 		s.recordFailure(id, err)
 		status := http.StatusBadGateway
@@ -689,4 +741,45 @@ func isQuotaExhaustedError(statusCode int, message string) bool {
 		}
 	}
 	return false
+}
+
+// handleAccountsExport 导出全部账号（含完整凭证）。
+//
+// 明文导出：面板在 Cloudflare Access 后面，且导出文件必须能原样导回，
+// 脱敏过的凭证导回去就是一堆废号。
+func (s *Server) handleAccountsExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+		return
+	}
+	bundle, err := s.store.ExportAccounts()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		return
+	}
+	if r.URL.Query().Get("download") != "" {
+		w.Header().Set("Content-Disposition", fmt.Sprintf(
+			`attachment; filename="codebuddy2api-accounts-%s.json"`,
+			time.Now().Format("20060102-150405")))
+	}
+	writeJSON(w, http.StatusOK, bundle)
+}
+
+// handleAccountsImport 导入账号：认导出文件、token.json、按行文本三种来源。
+func (s *Server) handleAccountsImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+		return
+	}
+	var payload ImportRequest
+	if err := decodeJSON(r, &payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	result, err := s.store.ImportAccounts(payload)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

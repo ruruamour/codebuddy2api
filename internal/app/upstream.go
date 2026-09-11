@@ -12,7 +12,9 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,53 +43,124 @@ func (e UpstreamStatusError) Error() string {
 
 type UpstreamClient struct {
 	cfg Config
+	// clients 按代理配置缓存 http.Client。
+	//
+	// 以前每个请求都新建一个 Transport，实测 20 个请求就开 20 条 TCP 连接、零复用：
+	// 每次都要重做一遍 TLS 握手，而且手工构造的 Transport 没设 IdleConnTimeout，
+	// 空闲连接永不关闭，跑久了就是 socket 泄漏。
+	// Transport 本身是并发安全的，按代理串缓存即可（其余参数都来自固定的 cfg）。
+	clients sync.Map // proxyURL string -> *http.Client
+	// types 是账号类型缓存，ProfileFor 每次都要查它，不能走库。
+	types *TypeRegistry
 }
 
-func NewUpstreamClient(cfg Config) *UpstreamClient {
-	return &UpstreamClient{cfg: cfg}
+func NewUpstreamClient(cfg Config, types *TypeRegistry) *UpstreamClient {
+	if types == nil {
+		types = NewTypeRegistry()
+	}
+	return &UpstreamClient{cfg: cfg, types: types}
 }
 
-func (c *UpstreamClient) PreparePayload(body map[string]any) map[string]any {
+func (c *UpstreamClient) PreparePayload(body map[string]any, profile AccountProfile) map[string]any {
 	payload := cloneMap(body)
-	payload["stream"] = true
+	payload["stream"] = true // intl 也强制流式（非流式直接 11101）
 	if _, ok := payload["model"]; !ok {
-		payload["model"] = "glm-5.1"
+		payload["model"] = c.defaultModel(profile)
 	}
 	delete(payload, "reasoning_effort")
+	if profile.RequestShape == ShapeIntl {
+		payload = shapeIntlPayload(payload)
+	}
 	return payload
 }
 
-func (c *UpstreamClient) BuildHeaders(account Account) http.Header {
-	profile := account.HeaderProfile
-	if profile == nil {
-		profile = map[string]any{}
+func (c *UpstreamClient) defaultModel(profile AccountProfile) string {
+	if len(profile.Models) > 0 && profile.Models[0] != "" {
+		return profile.Models[0]
 	}
-	headers := http.Header{}
-	headers.Set("Accept", "text/event-stream")
-	headers.Set("Content-Type", "application/json")
-	headers.Set("X-Requested-With", "XMLHttpRequest")
-	headers.Set("X-Domain", "copilot.tencent.com")
-	headers.Set("X-Product", "SaaS")
-	headers.Set("X-Agent-Intent", stringValue(profile["agent_intent"], "CodeCompletion"))
-	headers.Set("X-Env-ID", stringValue(profile["env_id"], "production"))
-	headers.Set("X-Request-ID", stringValue(profile["request_id"], strings.ReplaceAll(uuid.NewString(), "-", "")))
-	headers.Set("X-Machine-Id", stringValue(profile["machine_id"], uuid.NewString()))
-	headers.Set("User-Agent", stringValue(profile["user_agent"], "CLI/1.0.8 CodeBuddy/1.0.8"))
-	headers.Set("X-Api-Key", account.APIKey)
-	if extra, ok := profile["extra_headers"].(map[string]any); ok {
-		for key, value := range extra {
-			if key != "" && value != nil {
-				headers.Set(key, fmt.Sprint(value))
+	return "glm-5.1"
+}
+
+// toAnySlice 把任意切片规整成 []any。
+//
+// 从 HTTP 进来的请求经过 JSON 解码，messages 一定是 []any；但服务内部自己构造的
+// 请求（Probe、测试）写的是 []map[string]any，直接断言 []any 会失败并静默当成空数组——
+// 结果就是整条用户消息被丢掉，只发一条前导 system。
+func toAnySlice(value any) []any {
+	if value == nil {
+		return nil
+	}
+	if items, ok := value.([]any); ok {
+		return items
+	}
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Slice {
+		return nil
+	}
+	items := make([]any, rv.Len())
+	for i := range items {
+		items[i] = rv.Index(i).Interface()
+	}
+	return items
+}
+
+// shapeIntlPayload 把客户端发来的普通 OpenAI 请求改成 CodeBuddy 国际网关能吃的形状。
+//
+// 实测不整形的话：
+//   - 首条不是 system   → 11128 first message is not system prompt
+//   - user content 是字符串 → 同样会在解析阶段被拒
+//
+// 官方 CLI 的请求永远带一条前导 system，且 content 是 typed block 数组。
+func shapeIntlPayload(payload map[string]any) map[string]any {
+	messages := toAnySlice(payload["messages"])
+	shaped := make([]any, 0, len(messages)+1)
+	seenSystem := false
+	for _, raw := range messages {
+		message, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := message["role"].(string)
+		switch role {
+		case "system", "developer":
+			// 只保留第一条 system（网关只认前导 system），后面的丢弃
+			if seenSystem {
+				continue
+			}
+			role = "system"
+			seenSystem = true
+			message = cloneMap(message)
+			message["role"] = role
+		case "user":
+			// 字符串 content 要转成 typed block，否则国际网关解析失败
+			if text, ok := message["content"].(string); ok {
+				message = cloneMap(message)
+				message["content"] = []any{map[string]any{"type": "text", "text": text}}
 			}
 		}
+		shaped = append(shaped, message)
 	}
-	return headers
+	if !seenSystem {
+		shaped = append([]any{map[string]any{"role": "system", "content": codeBuddySystemPrompt}}, shaped...)
+	}
+	payload["messages"] = shaped
+	// 带 reasoning 参数时官方 CLI 会开 reasoning_summary
+	if effort, ok := payload["reasoning_effort"]; ok && effort != nil {
+		if text, _ := effort.(string); text != "" && text != "none" && text != "off" {
+			payload["reasoning_summary"] = "auto"
+		}
+	}
+	return payload
 }
+
+// codeBuddySystemPrompt 与官方 CLI 的前导 system 一致。
+const codeBuddySystemPrompt = "You are CodeBuddy Code."
 
 type StreamCallback func(wire []byte, state *StreamState) error
 
 func (c *UpstreamClient) StreamChat(ctx context.Context, account Account, requestBody map[string]any, callback StreamCallback) (*StreamState, error) {
-	payload := c.PreparePayload(requestBody)
+	profile := c.ProfileFor(account)
+	payload := c.PreparePayload(requestBody, profile)
 	model := stringValue(requestBody["model"], stringValue(payload["model"], "glm-5.1"))
 	state := &StreamState{
 		ResponseID: "chatcmpl-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
@@ -100,7 +173,7 @@ func (c *UpstreamClient) StreamChat(ctx context.Context, account Account, reques
 
 	reqCtx, cancel := context.WithTimeout(ctx, time.Duration(c.cfg.RequestTimeoutSeconds)*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.cfg.UpstreamURL, bytes.NewReader(payloadBytes))
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, profile.UpstreamURL, bytes.NewReader(payloadBytes))
 	if err != nil {
 		return state, err
 	}
@@ -168,9 +241,9 @@ func (c *UpstreamClient) CompleteChat(ctx context.Context, account Account, requ
 
 func (c *UpstreamClient) Probe(ctx context.Context, account Account) (map[string]any, map[string]any, error) {
 	body := map[string]any{
-		"model":      "glm-5.1",
+		"model":      c.defaultModel(c.ProfileFor(account)),
 		"messages":   []map[string]any{{"role": "user", "content": "只回复OK"}},
-		"stream":     false,
+		"stream":     true, // 必须流式，intl 对非流式直接 11101
 		"max_tokens": 8,
 	}
 	response, state, err := c.CompleteChat(ctx, account, body)
@@ -181,14 +254,33 @@ func (c *UpstreamClient) Probe(ctx context.Context, account Account) (map[string
 }
 
 func (c *UpstreamClient) httpClient(account Account) (*http.Client, error) {
+	key := account.ProxyString()
+	if cached, ok := c.clients.Load(key); ok {
+		return cached.(*http.Client), nil
+	}
+	client, err := c.newHTTPClient(account)
+	if err != nil {
+		return nil, err
+	}
+	// 并发建了同一把 key 时留先到的那个，避免同一代理存在两份连接池
+	actual, _ := c.clients.LoadOrStore(key, client)
+	return actual.(*http.Client), nil
+}
+
+func (c *UpstreamClient) newHTTPClient(account Account) (*http.Client, error) {
 	transport := &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: time.Duration(c.cfg.ConnectTimeoutSeconds) * time.Second}).DialContext,
 		TLSHandshakeTimeout:   time.Duration(c.cfg.ConnectTimeoutSeconds) * time.Second,
 		ResponseHeaderTimeout: time.Duration(c.cfg.RequestTimeoutSeconds) * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		ForceAttemptHTTP2:     true,
-		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+		// 手工构造的 Transport 这两项零值意味着「不限制」，必须显式设，
+		// 否则空闲连接永不回收
+		IdleConnTimeout:     90 * time.Second,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		ForceAttemptHTTP2:   true,
+		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	if account.ProxyString() != "" {
 		proxyURL, err := url.Parse(account.ProxyString())

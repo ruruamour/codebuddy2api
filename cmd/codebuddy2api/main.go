@@ -21,10 +21,17 @@ func main() {
 	}
 	defer store.Close()
 
+	// 建立账号类型表与公共模型表，并把老账号归类。种子取自库里当前生效的值，
+	// 所以跑完之后对外行为不变；重复启动是幂等的。
+	if err := store.Bootstrap(cfg); err != nil {
+		log.Fatalf("bootstrap: %v", err)
+	}
+
 	server := app.NewServer(cfg, store)
-	rootCtx, stopCredits := context.WithCancel(context.Background())
-	defer stopCredits()
+	rootCtx, stopLoops := context.WithCancel(context.Background())
+	defer stopLoops()
 	server.StartCreditsLoop(rootCtx)
+	server.StartTokenRefreshLoop(rootCtx)
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr(),
 		Handler:           server.Routes(),
@@ -41,7 +48,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-	stopCredits()
+	stopLoops()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

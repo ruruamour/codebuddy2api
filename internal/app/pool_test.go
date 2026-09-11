@@ -9,13 +9,13 @@ func TestPoolRoundRobinStrategy(t *testing.T) {
 	store := newTestStore(t)
 	first := addTestAccount(t, store, "first", 10, 100, 1)
 	second := addTestAccount(t, store, "second", 10, 100, 1)
-	pool := NewPool(store, []string{"glm-5.1"}, PoolStrategyRoundRobin)
+	pool := NewPool(store, nil, []string{"glm-5.1"}, PoolStrategyRoundRobin)
 
-	firstLease, err := pool.Acquire()
+	firstLease, err := pool.Acquire("")
 	if err != nil {
 		t.Fatalf("acquire first: %v", err)
 	}
-	secondLease, err := pool.Acquire()
+	secondLease, err := pool.Acquire("")
 	if err != nil {
 		t.Fatalf("acquire second: %v", err)
 	}
@@ -36,17 +36,17 @@ func TestPoolFillFirstStrategy(t *testing.T) {
 	}, []string{"glm-5.1"}, PoolStrategyRoundRobin); err != nil {
 		t.Fatalf("save settings: %v", err)
 	}
-	pool := NewPool(store, []string{"glm-5.1"}, PoolStrategyRoundRobin)
+	pool := NewPool(store, nil, []string{"glm-5.1"}, PoolStrategyRoundRobin)
 
-	firstLease, err := pool.Acquire()
+	firstLease, err := pool.Acquire("")
 	if err != nil {
 		t.Fatalf("acquire first: %v", err)
 	}
-	secondLease, err := pool.Acquire()
+	secondLease, err := pool.Acquire("")
 	if err != nil {
 		t.Fatalf("acquire second: %v", err)
 	}
-	thirdLease, err := pool.Acquire()
+	thirdLease, err := pool.Acquire("")
 	if err != nil {
 		t.Fatalf("acquire third: %v", err)
 	}

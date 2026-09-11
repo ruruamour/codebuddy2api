@@ -38,6 +38,11 @@ var DefaultCodeBuddyModelIDs = []string{
 
 var CodeBuddyModelCatalog = []ModelInfo{
 	{ID: "glm-5.1", Name: "GLM-5.1", Credits: "x1.06 credits", MaxInputTokens: 200000, MaxOutputTokens: 48000},
+	// deepseek 这三个官方没公布倍率与上下文，留空显示「—」，别编数字——
+	// 面板上一个编出来的倍率会被当成计费依据
+	{ID: "deepseek-v4.1-flash", Name: "DeepSeek V4.1 Flash"},
+	{ID: "deepseek-v4-flash", Name: "DeepSeek V4 Flash"},
+	{ID: "deepseek-v4-pro", Name: "DeepSeek V4 Pro"},
 	{ID: "minimax-m2.7", Name: "MiniMax-M2.7", Credits: "x0.26 credits", MaxInputTokens: 200000, MaxOutputTokens: 48000, SupportsImages: true},
 	{ID: "kimi-k2.6", Name: "Kimi-K2.6", Credits: "x0.59 credits", MaxInputTokens: 256000, MaxOutputTokens: 32000, SupportsImages: true},
 	{ID: "deepseek-v3-2-volc", Name: "DeepSeek-V3.2", Credits: "x0.29 credits", MaxInputTokens: 96000, MaxOutputTokens: 32000},
