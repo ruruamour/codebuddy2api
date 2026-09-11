@@ -67,6 +67,7 @@ type PublicAccount struct {
 	CreditsTotal        *float64       `json:"credits_total"`
 	CreditsCycleEnd     *int64         `json:"credits_cycle_end"`
 	CreditsCheckedAt    *int64         `json:"credits_checked_at"`
+	CreditsPackages     *string        `json:"credits_packages"`
 	CreditsError        *string        `json:"credits_error"`
 	CreditsPaused       bool           `json:"credits_paused"`
 	CreatedAt           int64          `json:"created_at"`
@@ -184,6 +185,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   credits_cycle_end INTEGER,
   credits_checked_at INTEGER,
   credits_error TEXT,
+  credits_packages TEXT,
   credits_paused INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -214,6 +216,7 @@ CREATE TABLE IF NOT EXISTS settings (
 		{"credits_cycle_end", "ALTER TABLE accounts ADD COLUMN credits_cycle_end INTEGER"},
 		{"credits_checked_at", "ALTER TABLE accounts ADD COLUMN credits_checked_at INTEGER"},
 		{"credits_error", "ALTER TABLE accounts ADD COLUMN credits_error TEXT"},
+		{"credits_packages", "ALTER TABLE accounts ADD COLUMN credits_packages TEXT"},
 		{"credits_paused", "ALTER TABLE accounts ADD COLUMN credits_paused INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := s.ensureColumn("accounts", migration.name, migration.ddl); err != nil {
@@ -489,7 +492,7 @@ SELECT id, name, api_key, enabled, status, priority, weight, concurrency,
        quota_auto_disable, expires_at, expire_auto_disable,
        last_disable_reason, last_disable_at, created_at, updated_at,
        credits_remaining, credits_total, credits_cycle_end, credits_checked_at,
-       credits_error, credits_paused
+       credits_error, credits_paused, credits_packages
 FROM accounts ORDER BY priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -713,6 +716,7 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	var creditsCheckedAt sql.NullInt64
 	var creditsError sql.NullString
 	var creditsPaused int
+	var creditsPackages sql.NullString
 	if err := rows.Scan(
 		&data.ID,
 		&data.Name,
@@ -752,6 +756,7 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 		&creditsCheckedAt,
 		&creditsError,
 		&creditsPaused,
+		&creditsPackages,
 	); err != nil {
 		return data, err
 	}
@@ -783,12 +788,13 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	data.CreditsCycleEnd = nullIntPtr(creditsCycleEnd)
 	data.CreditsCheckedAt = nullIntPtr(creditsCheckedAt)
 	data.CreditsError = nullStringPtr(creditsError)
+	data.CreditsPackages = nullStringPtr(creditsPackages)
 	data.CreditsPaused = creditsPaused == 1
 	return data, nil
 }
 
 // SaveCredits 记录一次余额查询结果。errMsg 非空时只记错误，不动余额字段。
-func (s *Store) SaveCredits(id int64, remain, total float64, cycleEnd *int64, errMsg string) error {
+func (s *Store) SaveCredits(id int64, remain, total float64, cycleEnd *int64, errMsg string, packagesJSON ...string) error {
 	ts := now()
 	if errMsg != "" {
 		_, err := s.db.Exec(
@@ -796,10 +802,14 @@ func (s *Store) SaveCredits(id int64, remain, total float64, cycleEnd *int64, er
 			errMsg, ts, ts, id)
 		return err
 	}
+	var packages any
+	if len(packagesJSON) > 0 && packagesJSON[0] != "" {
+		packages = packagesJSON[0]
+	}
 	_, err := s.db.Exec(`UPDATE accounts
 SET credits_remaining = ?, credits_total = ?, credits_cycle_end = ?, credits_checked_at = ?,
-    credits_error = NULL, updated_at = ?
-WHERE id = ?`, remain, total, cycleEnd, ts, ts, id)
+    credits_packages = COALESCE(?, credits_packages), credits_error = NULL, updated_at = ?
+WHERE id = ?`, remain, total, cycleEnd, ts, packages, ts, id)
 	return err
 }
 

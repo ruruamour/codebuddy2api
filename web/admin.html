@@ -781,7 +781,7 @@
       const lastChecked = known.reduce((max, a) => Math.max(max, Number(a.credits_checked_at || 0)), 0);
       const items = [
         ["真实剩余积分", realRemain()],
-        ["真实包总量", known.reduce((sum, a) => sum + Number(a.credits_total || 0), 0)],
+        ["真实包总量（生效中）", known.reduce((sum, a) => sum + Number(a.credits_total || 0), 0)],
         ["已查余额账号", `${known.length} / ${state.accounts.length}`],
         ["余额触发暂停", state.accounts.filter((a) => a.credits_paused).length],
         ["余额最近查询", lastChecked ? time(lastChecked) : "-"],
@@ -890,7 +890,8 @@
       const total = Number(a.credits_total || 0);
       const percent = total > 0 ? Math.min(100, Math.max(0, remain / total * 100)) : 0;
       const barClass = percent <= 10 ? "credit-bar warn" : "credit-bar";
-      return `<td class="small">
+      const tip = a.credits_packages ? ` title="${escapeHtml(a.credits_packages)}"` : "";
+      return `<td class="small"${tip}>
         <div class="mono">${escapeHtml(fmt(remain))} / ${escapeHtml(fmt(total))} 剩</div>
         ${total > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
         ${a.credits_paused ? '<div class="row-sub" style="color:#fca5a5;">积分耗尽已暂停</div>' : ""}

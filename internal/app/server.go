@@ -100,10 +100,13 @@ func (s *Server) RefreshCredits(ctx context.Context) map[string]any {
 			continue
 		}
 		okCount++
-		totalRemain += info.Remain
-		if err := s.store.SaveCredits(acc.ID, info.Remain, info.Total, info.CycleEnd, ""); err != nil {
+		totalRemain += info.ActiveRemain
+		// 面板展示用「生效中的包」口径：分母不含已用尽的包，重置时间也只取生效包的
+		if err := s.store.SaveCredits(acc.ID, info.ActiveRemain, info.ActiveTotal, info.CycleEnd,
+			"", creditPackagesJSON(info.Packages)); err != nil {
 			log.Printf("credits: #%d 保存失败: %v", acc.ID, err)
 		}
+		// 暂停判断用全部包剩余：只要还有任何一个包有钱就不要停
 		if info.Remain <= s.cfg.CreditsMinRemain {
 			if err := s.store.PauseForCredits(acc.ID, info.CycleEnd, "credits_exhausted"); err == nil {
 				pausedCount++
@@ -154,6 +157,30 @@ func attachInFlight(accounts []PublicAccount, inFlight map[int64]int) []PublicAc
 		accounts[i].InFlight = inFlight[accounts[i].ID]
 	}
 	return accounts
+}
+
+// creditPackagesJSON 把包明细序列化成紧凑列表，供面板 tooltip 展示。
+func creditPackagesJSON(packages []CreditPackage) string {
+	parts := make([]string, 0, len(packages))
+	for _, p := range packages {
+		label := fmt.Sprintf("%s %.2f/%.0f [%s", p.Name, p.Remain, p.Size, creditStatusText(p.Status))
+		if p.CycleEnd != nil {
+			label += "，至" + time.Unix(*p.CycleEnd, 0).Format("2006-01-02")
+		}
+		parts = append(parts, label+"]")
+	}
+	return strings.Join(parts, "；")
+}
+
+func creditStatusText(status int) string {
+	switch status {
+	case 0:
+		return "生效"
+	case 3:
+		return "已用尽"
+	default:
+		return fmt.Sprintf("Status=%d", status)
+	}
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {

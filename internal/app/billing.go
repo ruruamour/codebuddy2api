@@ -28,11 +28,17 @@ const (
 )
 
 // CreditsInfo 是一次余额查询的结果（单位：credits）。
+//
+// Remain/Total 是「全部包」口径（含已用尽的包，用尽包 remain=0 只影响分母）；
+// ActiveRemain/ActiveTotal 是「生效中（Status=0）的包」口径，面板展示与阈值判断都以它为准——
+// 否则 430/4500 这种分母会把一个还剩 86% 的月度包画成红色告警。
 type CreditsInfo struct {
-	Remain   float64 // 各包本周期剩余合计（Precise）
-	Total    float64 // 各包本周期总量合计（Precise）
-	CycleEnd *int64  // 最早到期/重置时间（unix 秒）
-	Packages []CreditPackage
+	Remain       float64 // 全部包剩余合计
+	Total        float64 // 全部包总量合计（分母偏大，仅参考）
+	ActiveRemain float64 // 生效中包剩余合计（面板显示用）
+	ActiveTotal  float64 // 生效中包总量合计
+	CycleEnd     *int64  // 生效中包里最早的到期/重置时间
+	Packages     []CreditPackage
 }
 
 // CreditPackage 是单个积分包。
@@ -133,20 +139,27 @@ func (c *UpstreamClient) FetchCredits(account Account) (CreditsInfo, error) {
 		if cycleRemain < 0 {
 			cycleRemain = 0
 		}
+		status := int(numField(p["Status"]))
 		info.Remain += cycleRemain
 		info.Total += cycleSize
+		// Status 0 = 生效中；3 = 已用完/失效（已用尽的包不计入有效额度）
+		active := status == 0 && cycleRemain > 0
+		if active {
+			info.ActiveRemain += cycleRemain
+			info.ActiveTotal += cycleSize
+		}
 
 		pkg := CreditPackage{
 			Name:   stringValue(p["PackageName"], "-"),
 			Code:   stringValue(p["PackageCode"], ""),
-			Status: int(numField(p["Status"])),
+			Status: status,
 			Remain: cycleRemain,
 			Size:   cycleSize,
 		}
 		for _, key := range []string{"CycleEndTime", "ExpiredTime"} {
 			if ts, ok := parseBillingTime(stringValue(p[key], "")); ok {
 				pkg.CycleEnd = &ts
-				if info.CycleEnd == nil || ts < *info.CycleEnd {
+				if active && (info.CycleEnd == nil || ts < *info.CycleEnd) {
 					info.CycleEnd = &ts
 				}
 				break
