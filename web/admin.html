@@ -264,6 +264,7 @@
         <button id="saveKey" class="secondary" type="button">保存</button>
         <button id="clearKey" class="ghost" type="button">清除</button>
         <button id="refresh" type="button">刷新数据</button>
+        <button id="refreshCredits" class="secondary" type="button">刷新余额</button>
       </div>
       <div class="muted small">通过 Cloudflare Access 登录时可直接管理；也可以手动填写 Admin Key，保存后请求 Admin API 时作为 Authorization: Bearer 发送。服务端不会把完整 ck Key 返回到页面。</div>
     </section>
@@ -482,6 +483,7 @@
       show("已清除本地保存的管理口令。");
     });
     document.getElementById("refresh").addEventListener("click", refreshAll);
+    document.getElementById("refreshCredits").addEventListener("click", refreshCredits);
     document.getElementById("refreshAccounts").addEventListener("click", refreshAll);
     document.getElementById("addForm").addEventListener("submit", addAccount);
     document.getElementById("search").addEventListener("input", renderAccounts);
@@ -623,6 +625,32 @@
       }
     }
 
+    // 拉官方计费接口的真实积分余额（不消耗积分），余额过低会暂停账号
+    async function refreshCredits() {
+      const button = document.getElementById("refreshCredits");
+      button.disabled = true;
+      const original = button.textContent;
+      button.textContent = "查询中…";
+      try {
+        localStorage.setItem("codebuddy2api.adminKey", keyInput.value.trim());
+        const res = await api("/admin/credits/refresh", { method: "POST" });
+        state.accounts = res.accounts || state.accounts;
+        renderStats();
+        renderCredits();
+        renderProblemAccounts();
+        renderAccounts();
+        const s = res.summary || {};
+        show(`余额已刷新：${s.checked || 0} 个成功${s.failed ? `，${s.failed} 个失败` : ""}`
+          + `${s.paused ? `，暂停 ${s.paused} 个` : ""}${s.resumed ? `，恢复 ${s.resumed} 个` : ""}`
+          + `，剩余合计 ${fmt(s.total_remain)} 积分`);
+      } catch (err) {
+        show(err.message, true);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    }
+
     function splitModelsText(value) {
       return String(value || "")
         .split(/[\n,\t\r]+/)
@@ -718,12 +746,20 @@
       };
     }
 
+    // 官方计费接口查到的真实剩余积分合计（未查到的不计）
+    function realRemain() {
+      return state.accounts
+        .filter((a) => a.credits_remaining !== null && a.credits_remaining !== undefined)
+        .reduce((sum, a) => sum + Number(a.credits_remaining || 0), 0);
+    }
+
     function renderStats() {
       const stats = state.stats || {};
       const credits = creditSummary();
       const items = [
         ["账号总数", stats.accounts],
         ["启用账号", stats.enabled_accounts],
+        ["真实剩余积分", realRemain()],
         ["配置总额度", credits.totalQuota],
         ["配置剩余额度", credits.remaining],
         ["总请求", stats.total_requests],
@@ -741,7 +777,14 @@
 
     function renderCredits() {
       const credits = creditSummary();
+      const known = state.accounts.filter((a) => a.credits_remaining !== null && a.credits_remaining !== undefined);
+      const lastChecked = known.reduce((max, a) => Math.max(max, Number(a.credits_checked_at || 0)), 0);
       const items = [
+        ["真实剩余积分", realRemain()],
+        ["真实包总量", known.reduce((sum, a) => sum + Number(a.credits_total || 0), 0)],
+        ["已查余额账号", `${known.length} / ${state.accounts.length}`],
+        ["余额触发暂停", state.accounts.filter((a) => a.credits_paused).length],
+        ["余额最近查询", lastChecked ? time(lastChecked) : "-"],
         ["配置总额度", credits.totalQuota],
         ["已用额度（有限额账号）", credits.usedLimited],
         ["配置剩余额度", credits.remaining],
@@ -823,7 +866,7 @@
             <thead>
               <tr>
                 <th><input id="checkAll" type="checkbox" /></th>
-                <th>ID</th><th>名称</th><th>状态</th><th>Credits</th><th>优先级</th><th>权重</th><th>并发</th><th>请求</th><th>最近状态</th><th>操作</th>
+                <th>ID</th><th>名称</th><th>状态</th><th>真实余额</th><th>Credits</th><th>优先级</th><th>权重</th><th>并发</th><th>请求</th><th>最近状态</th><th>操作</th>
               </tr>
             </thead>
             <tbody>${accounts.map(accountRow).join("")}</tbody>
@@ -832,6 +875,28 @@
       document.getElementById("checkAll").addEventListener("change", (event) => {
         document.querySelectorAll(".account-check").forEach((item) => { item.checked = event.target.checked; });
       });
+    }
+
+    // 真实余额单元格：来自官方计费接口；与面板的累计 credit 是两个口径
+    function realCreditCell(a) {
+      if (a.credits_error) {
+        return `<td class="small"><div class="row-sub" style="color:#fca5a5;" title="${escapeHtml(a.credits_error)}">查询失败</div>
+          <div class="row-sub">${escapeHtml(time(a.credits_checked_at))}</div></td>`;
+      }
+      if (a.credits_remaining === null || a.credits_remaining === undefined) {
+        return '<td class="small"><div class="row-sub">未查询</div></td>';
+      }
+      const remain = Number(a.credits_remaining || 0);
+      const total = Number(a.credits_total || 0);
+      const percent = total > 0 ? Math.min(100, Math.max(0, remain / total * 100)) : 0;
+      const barClass = percent <= 10 ? "credit-bar warn" : "credit-bar";
+      return `<td class="small">
+        <div class="mono">${escapeHtml(fmt(remain))} / ${escapeHtml(fmt(total))} 剩</div>
+        ${total > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}
+        ${a.credits_paused ? '<div class="row-sub" style="color:#fca5a5;">积分耗尽已暂停</div>' : ""}
+        ${a.credits_cycle_end ? `<div class="row-sub">重置：${escapeHtml(time(a.credits_cycle_end))}</div>` : ""}
+        <div class="row-sub">查询：${escapeHtml(time(a.credits_checked_at))}</div>
+      </td>`;
     }
 
     function accountRow(a) {
@@ -860,6 +925,7 @@
             ${a.quota_exceeded ? '<div class="row-sub" style="color:#fca5a5;">额度已超</div>' : ""}
             ${a.cooldown_until ? `<div class="row-sub">冷却至：${escapeHtml(time(a.cooldown_until))}</div>` : ""}
           </td>
+          ${realCreditCell(a)}
           <td class="small">
             <div class="mono">${escapeHtml(creditText)}</div>
             ${limit > 0 ? `<div class="${barClass}"><span style="width:${percent.toFixed(2)}%"></span></div>` : ""}

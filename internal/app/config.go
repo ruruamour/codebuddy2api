@@ -32,6 +32,11 @@ type Config struct {
 	AutoDisableQuotaErrors bool
 	AdminTrustCFAccess     bool
 	AdminAccessEmails      map[string]struct{}
+	// CreditsRefreshMinutes 余额轮询间隔（分钟，0=关闭自动轮询）。
+	// 查余额走官方计费接口，不消耗积分。
+	CreditsRefreshMinutes int
+	// CreditsMinRemain 低于该剩余积分即暂停账号（冷却到本周期结束）。
+	CreditsMinRemain float64
 }
 
 func LoadConfig() Config {
@@ -62,6 +67,8 @@ func LoadConfig() Config {
 		AutoDisableQuotaErrors: envBool("CODEBUDDY2API_AUTO_DISABLE_QUOTA_ERRORS", true),
 		AdminTrustCFAccess:     envBool("CODEBUDDY2API_ADMIN_TRUST_CF_ACCESS", true),
 		AdminAccessEmails:      envStringSet("CODEBUDDY2API_ADMIN_ACCESS_EMAILS", ""),
+		CreditsRefreshMinutes:  envInt("CODEBUDDY2API_CREDITS_REFRESH_MIN", 10),
+		CreditsMinRemain:       envFloat("CODEBUDDY2API_CREDITS_MIN_REMAIN", 0.5),
 	}
 }
 
@@ -94,6 +101,18 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envFloat(name string, fallback float64) float64 {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil {
 		return fallback
 	}

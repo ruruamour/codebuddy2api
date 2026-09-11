@@ -63,6 +63,12 @@ type PublicAccount struct {
 	ExpireAutoDisable   bool           `json:"expire_auto_disable"`
 	LastDisableReason   *string        `json:"last_disable_reason"`
 	LastDisableAt       *int64         `json:"last_disable_at"`
+	CreditsRemaining    *float64       `json:"credits_remaining"`
+	CreditsTotal        *float64       `json:"credits_total"`
+	CreditsCycleEnd     *int64         `json:"credits_cycle_end"`
+	CreditsCheckedAt    *int64         `json:"credits_checked_at"`
+	CreditsError        *string        `json:"credits_error"`
+	CreditsPaused       bool           `json:"credits_paused"`
 	CreatedAt           int64          `json:"created_at"`
 	UpdatedAt           int64          `json:"updated_at"`
 	InFlight            int            `json:"in_flight,omitempty"`
@@ -173,6 +179,12 @@ CREATE TABLE IF NOT EXISTS accounts (
   expire_auto_disable INTEGER NOT NULL DEFAULT 0,
   last_disable_reason TEXT,
   last_disable_at INTEGER,
+  credits_remaining REAL,
+  credits_total REAL,
+  credits_cycle_end INTEGER,
+  credits_checked_at INTEGER,
+  credits_error TEXT,
+  credits_paused INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -197,6 +209,12 @@ CREATE TABLE IF NOT EXISTS settings (
 		{"expire_auto_disable", "ALTER TABLE accounts ADD COLUMN expire_auto_disable INTEGER NOT NULL DEFAULT 0"},
 		{"last_disable_reason", "ALTER TABLE accounts ADD COLUMN last_disable_reason TEXT"},
 		{"last_disable_at", "ALTER TABLE accounts ADD COLUMN last_disable_at INTEGER"},
+		{"credits_remaining", "ALTER TABLE accounts ADD COLUMN credits_remaining REAL"},
+		{"credits_total", "ALTER TABLE accounts ADD COLUMN credits_total REAL"},
+		{"credits_cycle_end", "ALTER TABLE accounts ADD COLUMN credits_cycle_end INTEGER"},
+		{"credits_checked_at", "ALTER TABLE accounts ADD COLUMN credits_checked_at INTEGER"},
+		{"credits_error", "ALTER TABLE accounts ADD COLUMN credits_error TEXT"},
+		{"credits_paused", "ALTER TABLE accounts ADD COLUMN credits_paused INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := s.ensureColumn("accounts", migration.name, migration.ddl); err != nil {
 			return err
@@ -469,7 +487,9 @@ SELECT id, name, api_key, enabled, status, priority, weight, concurrency,
        prompt_tokens, completion_tokens, total_tokens, last_success_at,
        last_failure_at, last_error, last_error_status, quota_limit,
        quota_auto_disable, expires_at, expire_auto_disable,
-       last_disable_reason, last_disable_at, created_at, updated_at
+       last_disable_reason, last_disable_at, created_at, updated_at,
+       credits_remaining, credits_total, credits_cycle_end, credits_checked_at,
+       credits_error, credits_paused
 FROM accounts ORDER BY priority DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -495,6 +515,7 @@ SELECT id, name, api_key, enabled, status, priority, weight, concurrency, proxy_
        header_profile, notes, consecutive_failures, cooldown_until
 FROM accounts
 WHERE enabled = 1
+  AND credits_paused = 0
   AND (status = 'active' OR (status = 'cooldown' AND (cooldown_until IS NULL OR cooldown_until <= ?)))
   AND NOT (quota_auto_disable = 1 AND quota_limit > 0 AND total_credit >= quota_limit)
   AND NOT (expire_auto_disable = 1 AND expires_at IS NOT NULL AND expires_at <= ?)
@@ -686,6 +707,12 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	var expireAutoDisable int
 	var lastDisableReason sql.NullString
 	var lastDisableAt sql.NullInt64
+	var creditsRemaining sql.NullFloat64
+	var creditsTotal sql.NullFloat64
+	var creditsCycleEnd sql.NullInt64
+	var creditsCheckedAt sql.NullInt64
+	var creditsError sql.NullString
+	var creditsPaused int
 	if err := rows.Scan(
 		&data.ID,
 		&data.Name,
@@ -719,6 +746,12 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 		&lastDisableAt,
 		&data.CreatedAt,
 		&data.UpdatedAt,
+		&creditsRemaining,
+		&creditsTotal,
+		&creditsCycleEnd,
+		&creditsCheckedAt,
+		&creditsError,
+		&creditsPaused,
 	); err != nil {
 		return data, err
 	}
@@ -745,7 +778,61 @@ func scanPublicAccount(rows *sql.Rows) (PublicAccount, error) {
 	data.ExpireAutoDisable = expireAutoDisable == 1
 	data.LastDisableReason = nullStringPtr(lastDisableReason)
 	data.LastDisableAt = nullIntPtr(lastDisableAt)
+	data.CreditsRemaining = nullFloatPtr(creditsRemaining)
+	data.CreditsTotal = nullFloatPtr(creditsTotal)
+	data.CreditsCycleEnd = nullIntPtr(creditsCycleEnd)
+	data.CreditsCheckedAt = nullIntPtr(creditsCheckedAt)
+	data.CreditsError = nullStringPtr(creditsError)
+	data.CreditsPaused = creditsPaused == 1
 	return data, nil
+}
+
+// SaveCredits 记录一次余额查询结果。errMsg 非空时只记错误，不动余额字段。
+func (s *Store) SaveCredits(id int64, remain, total float64, cycleEnd *int64, errMsg string) error {
+	ts := now()
+	if errMsg != "" {
+		_, err := s.db.Exec(
+			"UPDATE accounts SET credits_error = ?, credits_checked_at = ?, updated_at = ? WHERE id = ?",
+			errMsg, ts, ts, id)
+		return err
+	}
+	_, err := s.db.Exec(`UPDATE accounts
+SET credits_remaining = ?, credits_total = ?, credits_cycle_end = ?, credits_checked_at = ?,
+    credits_error = NULL, updated_at = ?
+WHERE id = ?`, remain, total, cycleEnd, ts, ts, id)
+	return err
+}
+
+// PauseForCredits 余额耗尽：进入冷却而不是禁用——冷却到本周期结束自动恢复，
+// 不需要人工介入（月度包每月 1 号归零）。
+func (s *Store) PauseForCredits(id int64, cycleEnd *int64, reason string) error {
+	ts := now()
+	var until any
+	if cycleEnd != nil && *cycleEnd > ts {
+		until = *cycleEnd
+	}
+	_, err := s.db.Exec(`UPDATE accounts
+SET credits_paused = 1,
+    status = 'cooldown',
+    consecutive_failures = 0,
+    cooldown_until = COALESCE(?, cooldown_until),
+    last_disable_reason = ?,
+    updated_at = ?
+WHERE id = ? AND credits_paused = 0`, until, reason, ts, id)
+	return err
+}
+
+// ResumeCreditsPause 余额恢复（如跳月重置）：只解除由余额触发的暂停。
+func (s *Store) ResumeCreditsPause(id int64) error {
+	ts := now()
+	_, err := s.db.Exec(`UPDATE accounts
+SET credits_paused = 0,
+    status = CASE WHEN last_disable_reason = 'credits_exhausted' AND status = 'cooldown' THEN 'active' ELSE status END,
+    cooldown_until = CASE WHEN last_disable_reason = 'credits_exhausted' THEN NULL ELSE cooldown_until END,
+    last_disable_reason = CASE WHEN last_disable_reason = 'credits_exhausted' THEN NULL ELSE last_disable_reason END,
+    updated_at = ?
+WHERE id = ? AND credits_paused = 1`, ts, id)
+	return err
 }
 
 func parseProfile(raw string) map[string]any {
@@ -817,6 +904,13 @@ func nullIntPtr(value sql.NullInt64) *int64 {
 		return nil
 	}
 	return &value.Int64
+}
+
+func nullFloatPtr(value sql.NullFloat64) *float64 {
+	if !value.Valid {
+		return nil
+	}
+	return &value.Float64
 }
 
 func nullIntPtrAsInt(value sql.NullInt64) *int {

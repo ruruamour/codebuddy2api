@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 //go:embed web/admin.html
@@ -42,8 +43,117 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/accounts", s.withAdminAuth(s.handleAdminAccounts))
 	mux.HandleFunc("/admin/accounts/", s.withAdminAuth(s.handleAdminAccountByID))
 	mux.HandleFunc("/admin/stats", s.withAdminAuth(s.handleAdminStats))
+	mux.HandleFunc("/admin/credits/refresh", s.withAdminAuth(s.handleCreditsRefresh))
 	mux.HandleFunc("/admin/settings", s.withAdminAuth(s.handleAdminSettings))
 	return requestLogger(mux)
+}
+
+// StartCreditsLoop 定期从官方计费接口拉真实积分余额。
+//
+// 触发参数：查询本身不消耗积分，所以轮询很便宜；但接口只认浏览器 UA。
+// 行为：余额 <= CreditsMinRemain 的账号会被暂停（status=cooldown，冷却到本周期结束），
+// 下一周期重置后自动恢复；余额回到阈值以上则解除暂停。
+// CREDITS_REFRESH_MIN=0 关闭轮询（此时不会暂停任何账号）。
+func (s *Server) StartCreditsLoop(ctx context.Context) {
+	interval := time.Duration(s.cfg.CreditsRefreshMinutes) * time.Minute
+	if s.cfg.CreditsRefreshMinutes <= 0 {
+		log.Printf("credits: 余额轮询已关闭（CODEBUDDY2API_CREDITS_REFRESH_MIN=0）")
+		return
+	}
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+			s.RefreshCredits(ctx)
+			timer.Reset(interval)
+		}
+	}()
+}
+
+// RefreshCredits 同步刷新所有账号余额，返回本次结果的摘要。
+func (s *Server) RefreshCredits(ctx context.Context) map[string]any {
+	accounts, err := s.store.ListAccounts()
+	if err != nil {
+		return map[string]any{"ok": false, "detail": err.Error()}
+	}
+	okCount, failCount, pausedCount, resumedCount := 0, 0, 0, 0
+	var totalRemain float64
+	for _, acc := range accounts {
+		if ctx.Err() != nil {
+			break
+		}
+		full, err := s.store.GetAccount(acc.ID)
+		if err != nil || full == nil {
+			continue
+		}
+		info, err := s.upstream.FetchCredits(*full)
+		if err != nil {
+			failCount++
+			// 查询失败不改状态：避免把能用的号误停。
+			_ = s.store.SaveCredits(acc.ID, 0, 0, nil, truncate(err.Error(), 200))
+			log.Printf("credits: #%d 查询失败: %v", acc.ID, err)
+			continue
+		}
+		okCount++
+		totalRemain += info.Remain
+		if err := s.store.SaveCredits(acc.ID, info.Remain, info.Total, info.CycleEnd, ""); err != nil {
+			log.Printf("credits: #%d 保存失败: %v", acc.ID, err)
+		}
+		if info.Remain <= s.cfg.CreditsMinRemain {
+			if err := s.store.PauseForCredits(acc.ID, info.CycleEnd, "credits_exhausted"); err == nil {
+				pausedCount++
+				log.Printf("credits: #%d 余额 %.2f <= %.2f，已暂停（冷却到本周期结束）",
+					acc.ID, info.Remain, s.cfg.CreditsMinRemain)
+			}
+		} else if acc.CreditsPaused {
+			if err := s.store.ResumeCreditsPause(acc.ID); err == nil {
+				resumedCount++
+				log.Printf("credits: #%d 余额恢复 %.2f，已解除暂停", acc.ID, info.Remain)
+			}
+		}
+	}
+	return map[string]any{
+		"ok":            true,
+		"checked":       okCount,
+		"failed":        failCount,
+		"paused":        pausedCount,
+		"resumed":       resumedCount,
+		"total_remain":  totalRemain,
+		"min_remain":    s.cfg.CreditsMinRemain,
+		"refresh_min":   s.cfg.CreditsRefreshMinutes,
+		"checked_at":    now(),
+		"accounts_seen": len(accounts),
+	}
+}
+
+func (s *Server) handleCreditsRefresh(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+		return
+	}
+	summary := s.RefreshCredits(r.Context())
+	accounts, err := s.store.ListAccounts()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"detail": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":       summary["ok"],
+		"summary":  summary,
+		"accounts": attachInFlight(accounts, s.pool.Snapshot()),
+	})
+}
+
+func attachInFlight(accounts []PublicAccount, inFlight map[int64]int) []PublicAccount {
+	for i := range accounts {
+		accounts[i].InFlight = inFlight[accounts[i].ID]
+	}
+	return accounts
 }
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
@@ -203,10 +313,7 @@ func (s *Server) handleAdminAccounts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		inFlight := s.pool.Snapshot()
-		for i := range accounts {
-			accounts[i].InFlight = inFlight[accounts[i].ID]
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
+		writeJSON(w, http.StatusOK, map[string]any{"accounts": attachInFlight(accounts, inFlight)})
 	case http.MethodPost:
 		var payload AccountCreate
 		if err := decodeJSON(r, &payload); err != nil {

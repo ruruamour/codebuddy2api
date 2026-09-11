@@ -22,6 +22,9 @@ func main() {
 	defer store.Close()
 
 	server := app.NewServer(cfg, store)
+	rootCtx, stopCredits := context.WithCancel(context.Background())
+	defer stopCredits()
+	server.StartCreditsLoop(rootCtx)
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr(),
 		Handler:           server.Routes(),
@@ -38,6 +41,7 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
+	stopCredits()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
