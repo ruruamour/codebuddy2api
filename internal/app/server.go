@@ -617,7 +617,10 @@ func (s *Server) recordFailure(id int64, err error) {
 		autoDisable = true
 		reason = "quota_or_credits_exhausted"
 	}
-	s.store.RecordFailure(id, message, statusCode, s.cfg.CooldownSeconds, s.cfg.FailureThreshold, autoDisable, reason)
+	// 冷却时长优先用上游给的重置时间（限流可能要等几十分钟到几小时，
+	// 固定值会导致账号在限流期间被反复拉起来撞墙）。
+	cooldownSeconds := CooldownSecondsForError(message, s.cfg.CooldownSeconds, now())
+	s.store.RecordFailure(id, message, statusCode, cooldownSeconds, s.cfg.FailureThreshold, autoDisable, reason)
 }
 
 func writeUpstreamError(w http.ResponseWriter, err error) {

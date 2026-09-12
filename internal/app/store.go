@@ -728,7 +728,10 @@ SELECT id, name, api_key, enabled, status, priority, weight, concurrency, proxy_
 FROM accounts
 WHERE enabled = 1
   AND credits_paused = 0
-  AND (status = 'active' OR (status = 'cooldown' AND (cooldown_until IS NULL OR cooldown_until <= ?)))
+  -- cooldown 必须有到期的时刻才算「已过冷却」：
+  -- 以前写成 cooldown_until IS NULL OR ...，于是 NULL 被当成「冷却已过」，
+  -- 一个处于 cooldown 但没写截止时间的账号会被一直调度。见 RecordFailure。
+  AND (status = 'active' OR (status = 'cooldown' AND cooldown_until IS NOT NULL AND cooldown_until <= ?))
   AND NOT (quota_auto_disable = 1 AND quota_limit > 0 AND total_credit >= quota_limit)
   AND NOT (expire_auto_disable = 1 AND expires_at IS NOT NULL AND expires_at <= ?)
 ORDER BY priority DESC, id ASC`, ts, ts)
