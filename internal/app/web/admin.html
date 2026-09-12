@@ -139,6 +139,7 @@
   .stat .k { font-size: 11.5px; color: var(--ink-3); }
   .stat .v { font-size: 19px; font-weight: 640; margin-top: 2px; letter-spacing: -0.3px; }
   .stat .v.small { font-size: 15px; }
+  .stat .v .row-sub { font-weight: 400; }
 
   table { width: 100%; border-collapse: collapse; }
   th {
@@ -680,6 +681,37 @@
     if (!ts) return null;
     return Math.floor((ts * 1000 - Date.now()) / 86400000);
   }
+
+  // ── 限流/冷却倒计时 ──────────────────────────────────────
+  // 上游限流时会在 429 响应体里给出复位时刻，服务端把它写进 cooldown_until。
+  // 面板不再只显示一个静态的「冷却中」，而是像 sub2api 那样显示还要等多久。
+  function cooldownLeft(a) {
+    if (!a.cooldown_until) return null;
+    const left = a.cooldown_until - Math.floor(Date.now() / 1000);
+    return left > 0 ? left : null;
+  }
+  function fmtDuration(sec) {
+    if (sec === null || sec === undefined) return "";
+    if (sec >= 86400) return `${Math.floor(sec / 86400)}天${Math.floor((sec % 86400) / 3600)}小时`;
+    if (sec >= 3600) return `${Math.floor(sec / 3600)}小时${Math.floor((sec % 3600) / 60)}分`;
+    if (sec >= 60) return `${Math.floor(sec / 60)}分${sec % 60}秒`;
+    return `${sec}秒`;
+  }
+  // 从上游错误体里认出限流原因，让人一眼知道是该等还是该查
+  function cooldownReason(a) {
+    const err = String(a.last_error || "");
+    if (/frequency limit/i.test(err)) return "上游频率限制";
+    if (/usage exceeds/i.test(err)) return "上游用量超限";
+    if (a.last_error_status === 429) return "上游 429";
+    if (a.last_error_status) return `上游 ${a.last_error_status}`;
+    return "";
+  }
+  // 冷却中的账号：倒计时徽标 + 恢复时刻 + 原因
+  function cooldownDetail(a) {
+    if (a.status !== "cooldown" || !a.cooldown_until) return "";
+    const reason = cooldownReason(a);
+    return `<div class="row-sub">恢复 ${esc(timeText(a.cooldown_until))}${reason ? " · " + esc(reason) : ""}</div>`;
+  }
   function splitList(v) {
     return String(v || "").split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
   }
@@ -965,9 +997,37 @@
   function statusBadge(a) {
     if (!a.enabled) return '<span class="badge">停用</span>';
     if (a.credits_paused) return '<span class="badge warn">余额暂停</span>';
-    if (a.status === "cooldown") return '<span class="badge warn">冷却中</span>';
+    if (a.status === "cooldown") {
+      const left = cooldownLeft(a);
+      // 带截止时间的：显示实时倒计时（每秒由 tickCooldowns 刷新）
+      if (left !== null) {
+        return `<span class="badge warn">限流 <span class="cd" data-until="${a.cooldown_until}">${fmtDuration(left)}</span></span>`;
+      }
+      return '<span class="badge warn">冷却中</span>';
+    }
     if (a.consecutive_failures > 0) return `<span class="badge warn">失败 ${a.consecutive_failures}</span>`;
     return '<span class="badge ok">正常</span>';
+  }
+
+  // 每秒把页面上的倒计时往前推，并在到期时自动拉一次最新状态。
+  // 只改文本、不整个重渲染，避免打断正在输入的筛选框或勾选。
+  function tickCooldowns() {
+    let expired = false;
+    document.querySelectorAll(".cd[data-until]").forEach((el) => {
+      const until = Number(el.dataset.until);
+      const left = until - Math.floor(Date.now() / 1000);
+      if (left > 0) {
+        el.textContent = fmtDuration(left);
+        return;
+      }
+      el.textContent = "即将恢复";
+      // 每个元素只触发一次刷新，否则会每秒重复请求
+      if (!el.dataset.refreshed) {
+        el.dataset.refreshed = "1";
+        expired = true;
+      }
+    });
+    if (expired) refreshAll();
   }
   function typeCell(a) {
     const t = typeBySlug(a.type_slug);
@@ -1020,7 +1080,7 @@
           ${a.notes ? `<div class="row-sub">${esc(a.notes)}</div>` : ""}
         </td>
         <td>${typeCell(a)}</td>
-        <td>${statusBadge(a)}${a.last_error ? `<div class="row-sub" title="${esc(a.last_error)}">${esc(String(a.last_error).slice(0, 28))}…</div>` : ""}</td>
+        <td>${statusBadge(a)}${cooldownDetail(a)}${a.last_error ? `<div class="row-sub" title="${esc(a.last_error)}">${esc(String(a.last_error).slice(0, 28))}…</div>` : ""}</td>
         <td class="num">${a.credits_remaining === null || a.credits_remaining === undefined
             ? "-" : `${fmt(a.credits_remaining)}<div class="row-sub">/ ${fmt(a.credits_total)}</div>`}</td>
         <td class="num">${fmt(a.total_requests)}<div class="row-sub">失败 ${fmt(a.total_failures)}</div></td>
@@ -1041,8 +1101,16 @@
   // ── 总览 ────────────────────────────────────────────────
   function renderStats() {
     const s = state.stats || {};
+    const cooling = state.accounts.filter((a) => a.enabled && a.status === "cooldown");
+    const soonest = cooling.reduce((min, a) => {
+      const l = cooldownLeft(a);
+      return l !== null && (min === null || l < min) ? l : min;
+    }, null);
     const box = [
       ["账号总数", fmt(s.accounts)], ["启用中", fmt(s.enabled_accounts)],
+      ["限流中", cooling.length
+        ? `${cooling.length} 个<div class="row-sub">最快 ${fmtDuration(soonest)} 后恢复</div>`
+        : "0"],
       ["总请求", fmt(s.total_requests)], ["成功", fmt(s.total_success)],
       ["失败", fmt(s.total_failures)], ["累计 credit", fmt(s.total_credit)],
       ["总 tokens", fmt(s.total_tokens)],
@@ -1072,7 +1140,10 @@
           const issues = [];
           if (!a.enabled) issues.push("已停用");
           if (a.credits_paused) issues.push("余额耗尽暂停");
-          if (a.status === "cooldown") issues.push("冷却中");
+          if (a.status === "cooldown") {
+            const left = cooldownLeft(a);
+            issues.push(left !== null ? `限流中（剩 ${fmtDuration(left)}）` : "冷却中");
+          }
           if (a.consecutive_failures > 0) issues.push(`连续失败 ${a.consecutive_failures}`);
           if (a.auth_mode === "bearer" && !a.has_refresh_token) issues.push("无 refresh token（到期会静默失效）");
           const d = daysLeft(a.token_expires_at);
@@ -1402,6 +1473,8 @@
 
   document.getElementById("adminKey").value = adminKey();
   renderUsage();
+  // 每秒推进限流倒计时（没有冷却账号时几乎无开销）
+  setInterval(tickCooldowns, 1000);
   // 无论有没有口令都走 refreshAll：没口令时它负责渲染出「请填口令」的空状态，
   // 以前这里用 if 挡掉，导致没口令时表格一片空白、毫无提示。
   refreshAll();
