@@ -58,9 +58,12 @@ func randomHex(n int) string {
 }
 
 // NewTraceIDs 生成一组互相自洽的 ID。
+//
+// 会话 ID 这里是现生成的，只适合「一次性」的请求（查余额、诊断）。走对话的请求
+// 应当由 conversationTracker 认出所属会话后覆盖它，见 conversation.go。
 func NewTraceIDs() TraceIDs {
 	return TraceIDs{
-		ConversationID: uuid.NewString(),
+		ConversationID: newConversationID(),
 		RequestID:      randomHex(16),
 		RootRequestID:  randomHex(16),
 		TraceID:        randomHex(16),

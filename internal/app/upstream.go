@@ -52,13 +52,15 @@ type UpstreamClient struct {
 	clients sync.Map // proxyURL string -> *http.Client
 	// types 是账号类型缓存，ProfileFor 每次都要查它，不能走库。
 	types *TypeRegistry
+	// conversations 把同一轮对话的多次请求认成一个会话，见 conversation.go。
+	conversations *conversationTracker
 }
 
 func NewUpstreamClient(cfg Config, types *TypeRegistry) *UpstreamClient {
 	if types == nil {
 		types = NewTypeRegistry()
 	}
-	return &UpstreamClient{cfg: cfg, types: types}
+	return &UpstreamClient{cfg: cfg, types: types, conversations: newConversationTracker()}
 }
 
 func (c *UpstreamClient) PreparePayload(body map[string]any, profile AccountProfile) map[string]any {
@@ -177,7 +179,13 @@ func (c *UpstreamClient) StreamChat(ctx context.Context, account Account, reques
 	if err != nil {
 		return state, err
 	}
-	req.Header = c.BuildHeaders(account)
+	// 对话请求要认会话：同一轮对话的每次请求共用一个 X-Conversation-ID。
+	// 用 requestBody 而不是整形后的 payload，理由见 conversationKey。
+	ids := NewTraceIDs()
+	if id := c.conversations.IDFor(account.ID, requestBody); id != "" {
+		ids.ConversationID = id
+	}
+	req.Header = c.buildHeaders(account, profile, ids)
 
 	client, err := c.httpClient(account)
 	if err != nil {
