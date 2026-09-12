@@ -30,6 +30,11 @@ type StreamState struct {
 	FinishReason   string
 	Usage          map[string]any
 	SawDone        bool
+	// SawContent / SawReasoningContent 记录整条响应里是否出现过非空文本，
+	// 用来决定「上游把可见文本全放在 reasoning_content 里」时要不要回填，
+	// 见 normalizeChunkForClient。按帧判断会误伤正常的「先思考后回答」流。
+	SawContent          bool
+	SawReasoningContent bool
 }
 
 type UpstreamStatusError struct {
@@ -69,11 +74,73 @@ func (c *UpstreamClient) PreparePayload(body map[string]any, profile AccountProf
 	if _, ok := payload["model"]; !ok {
 		payload["model"] = c.defaultModel(profile)
 	}
-	delete(payload, "reasoning_effort")
+	sanitizeReasoningEffort(payload, profile.RequestShape)
 	if profile.RequestShape == ShapeIntl {
 		payload = shapeIntlPayload(payload)
 	}
 	return payload
+}
+
+// supportedReasoningEfforts 是上游实际接受的思考档位。
+//
+// 逐值穷举实测（CN 与 intl 都测了）：这 6 个小写值是两个网关的交集，都接受。
+// 其余大小写变体一律 400：
+//
+//	11150 invalid_reasoning_effort "not supported by the current model"
+var supportedReasoningEfforts = map[string]struct{}{
+	"minimal": {}, "low": {}, "medium": {},
+	"high": {}, "xhigh": {}, "max": {},
+}
+
+// disableReasoningEfforts 是客户端用来表达「关思考」的写法。
+//
+// 两个上游对它的处理**不一致**：
+//   - CN (copilot.tencent.com)：off 能静默关掉思考；不传反而会思考（默认开）
+//   - intl (www.codebuddy.ai)：off/none 都是 400；关思考只能靠「不传」
+//
+// 所以不能统一成「一律丢弃」：那会让 CN 的关思考请求反而开始思考。
+var disableReasoningEfforts = map[string]struct{}{
+	"none": {}, "off": {}, "disabled": {}, "false": {},
+}
+
+// sanitizeReasoningEffort 归一化 reasoning_effort：
+//   - 大小写变体折叠成小写（客户端可能送 "Max"）
+//   - 未知值直接丢弃（宁可不思考，也不要整个请求 400）
+//   - 非字符串丢弃
+//   - 关思考档位按上游能力决定「原样透传」还是「丢弃」，见 disableReasoningEfforts
+//
+// 不能无条件 delete：上游靠这个字段决定思考档位，删了就等于强制关思考，
+// 而且 shapeIntlPayload 还要读它来决定是否加 reasoning_summary。
+func sanitizeReasoningEffort(payload map[string]any, shape string) {
+	raw, ok := payload["reasoning_effort"]
+	if !ok {
+		return
+	}
+	text, isString := raw.(string)
+	if !isString {
+		delete(payload, "reasoning_effort")
+		return
+	}
+	effort := strings.ToLower(strings.TrimSpace(text))
+	if effort == "" {
+		delete(payload, "reasoning_effort")
+		return
+	}
+	if _, disable := disableReasoningEfforts[effort]; disable {
+		if shape == ShapeIntl {
+			// intl 会 400，只能靠不传来关思考
+			delete(payload, "reasoning_effort")
+			return
+		}
+		// CN 认 off，原样透传才能真的关掉
+		payload["reasoning_effort"] = effort
+		return
+	}
+	if _, supported := supportedReasoningEfforts[effort]; !supported {
+		delete(payload, "reasoning_effort")
+		return
+	}
+	payload["reasoning_effort"] = effort
 }
 
 func (c *UpstreamClient) defaultModel(profile AccountProfile) string {
@@ -146,9 +213,12 @@ func shapeIntlPayload(payload map[string]any) map[string]any {
 		shaped = append([]any{map[string]any{"role": "system", "content": codeBuddySystemPrompt}}, shaped...)
 	}
 	payload["messages"] = shaped
-	// 带 reasoning 参数时官方 CLI 会开 reasoning_summary
-	if effort, ok := payload["reasoning_effort"]; ok && effort != nil {
-		if text, _ := effort.(string); text != "" && text != "none" && text != "off" {
+	// 带 reasoning 参数时官方 CLI 会同时开 reasoning_summary，
+	// 否则即便 effort 生效，上游也不会把思考过程写进 reasoning_content。
+	// 走到这里 reasoning_effort 已经过校验：intl 下的关思考档位已被删掉，
+	// 所以非空即代表真的要思考；支持档位都不在 disableReasoningEfforts 里。
+	if effort, ok := payload["reasoning_effort"].(string); ok && effort != "" {
+		if _, disable := disableReasoningEfforts[effort]; !disable {
 			payload["reasoning_summary"] = "auto"
 		}
 	}
@@ -358,16 +428,28 @@ func normalizeChunkForClient(chunk map[string]any, state *StreamState) {
 		if !ok {
 			continue
 		}
-		content, contentOK := delta["content"].(string)
-		if contentOK {
+		if content, ok := delta["content"].(string); ok && content != "" {
 			state.ContentParts = append(state.ContentParts, content)
+			state.SawContent = true
 		}
 		reasoning, reasoningOK := delta["reasoning_content"].(string)
 		if reasoningOK && reasoning != "" {
 			state.ReasoningParts = append(state.ReasoningParts, reasoning)
-			if !contentOK || content == "" {
-				delta["content"] = reasoning
-			}
+			state.SawReasoningContent = true
+		}
+		// 镜像判断不能只看当前帧。
+		//
+		// 上游（CN 与 intl 都一样）每帧都同时带 content 与 reasoning_content 两个键，
+		// 只是其中一个为空：思考阶段 content=""、reasoning 有值；回答阶段反过来。
+		// 按帧镜像会把思考阶段每一帧的 reasoning 都复制进 content，
+		// 于是下游把同一段文字当正文再渲染一遂（实测 reasoning_content 与 content
+		// 长度完全相等的情况）。
+		//
+		// 这里只在「整条响应至今没出现过任何 content」时才回填，
+		// 对齐 Python 原版的意图：兼容那些把可见文本全放在 reasoning_content
+		// 里的上游，让标准 OpenAI 客户端不至于只收到空白。
+		if !state.SawContent && reasoningOK && reasoning != "" {
+			delta["content"] = reasoning
 		}
 		mergeToolCalls(&state.ToolCalls, delta["tool_calls"])
 	}
@@ -414,12 +496,18 @@ func mergeToolCalls(target *[]map[string]any, incoming any) {
 
 func buildNonStreamResponse(state *StreamState) map[string]any {
 	content := strings.Join(state.ContentParts, "")
+	reasoning := strings.Join(state.ReasoningParts, "")
 	if content == "" {
-		content = strings.Join(state.ReasoningParts, "")
+		content = reasoning
 	}
 	message := map[string]any{
 		"role":    "assistant",
 		"content": content,
+	}
+	// 流式路径是原样透传 delta.reasoning_content 的，非流式聚合以前却没带上这个字段，
+	// 于是同一个模型用非流式客户端就永远看不到思考过程。这里补齐，与流式对齐。
+	if reasoning != "" {
+		message["reasoning_content"] = reasoning
 	}
 	if len(state.ToolCalls) > 0 {
 		message["tool_calls"] = state.ToolCalls
