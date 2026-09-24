@@ -50,6 +50,23 @@ const (
 	TypeSlugWorkBuddy = "workbuddy"
 )
 
+// freeIntlModels 是 intl 侧账号默认提供的模型。
+//
+// 2026-09-12 实测（逐个打、看 usage.credit，要求 tokens>0 以避免空响应误判）：
+//
+//	deepseek-v4.1-flash  credit=0  促销，注册表标 promoFreeUntil 2026-09-24
+//	hy3                  credit=0  192K 上下文
+//	hy4-preview-f        credit=0  1M 上下文，连打 15 次未触发限流
+//
+// 注意 hy4-preview（不带 -f）是收费的（同请求扣 0.05），别写错条目。
+// 其余模型（glm-5.x / kimi-k2.x / minimax-m3 / gemini-3.5-flash 等）在 intl 都扣积分，
+// 想要更广的模型面就靠国内订阅类型去接。
+var freeIntlModels = []string{
+	"deepseek-v4.1-flash",
+	"hy3",
+	"hy4-preview-f",
+}
+
 func builtinAccountTypes() []AccountType {
 	return []AccountType{
 		{
@@ -72,11 +89,11 @@ func builtinAccountTypes() []AccountType {
 			UpstreamURL:  "https://www.codebuddy.ai/v2/chat/completions",
 			Domain:       "www.codebuddy.ai",
 			RequestShape: ShapeIntl,
-			Models:       []string{"deepseek-v4.1-flash"},
+			Models:       freeIntlModels,
 			Priority:     100,
 			Enabled:      true,
 			Builtin:      true,
-			Notes:        "OAuth 凭证号，deepseek-v4.1-flash 限免。优先级高于国内订阅，免费的先用完再落到付费号",
+			Notes:        "OAuth 凭证号，deepseek-v4.1-flash 限免至 2026-09-24；hy3 / hy4-preview-f 实测长期免费。优先级高于国内订阅，免费的先用完再落到付费号",
 		},
 		{
 			Slug:         TypeSlugWorkBuddy,
@@ -85,7 +102,7 @@ func builtinAccountTypes() []AccountType {
 			UpstreamURL:  "https://www.workbuddy.ai/v2/chat/completions",
 			Domain:       "www.workbuddy.ai",
 			RequestShape: ShapeIntl,
-			Models:       []string{"deepseek-v4.1-flash"},
+			Models:       freeIntlModels,
 			Priority:     100,
 			Enabled:      false,
 			Builtin:      true,

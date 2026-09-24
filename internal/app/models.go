@@ -57,6 +57,10 @@ var CodeBuddyModelCatalog = []ModelInfo{
 	{ID: "kimi-k2-thinking", Name: "Kimi-K2-Thinking", Credits: "x0.54 credits", MaxInputTokens: 164000, MaxOutputTokens: 32000},
 	{ID: "hunyuan-2.0-thinking", Name: "Hunyuan-2.0-Thinking", Credits: "x0.04 credits", MaxInputTokens: 128000, MaxOutputTokens: 24000},
 	{ID: "hy3-preview", Name: "Hy3 preview", Credits: "x0.00 credits", MaxInputTokens: 192000, MaxOutputTokens: 64000},
+	// intl 实测免费（2026-09-12）：hy3 / hy4-preview-f。
+	// hy4-preview（不带 -f）同请求扣 0.05，不是免费条目。
+	{ID: "hy3", Name: "Hy3", Credits: "x0.00 credits", MaxInputTokens: 192000, MaxOutputTokens: 64000},
+	{ID: "hy4-preview-f", Name: "Hy4-Preview-F", Credits: "x0.00 credits", MaxInputTokens: 1000000, MaxOutputTokens: 64000},
 	{ID: "hunyuan-chat", Name: "Hunyuan-Turbos", Credits: "x0.10 credits", MaxInputTokens: 200000, MaxOutputTokens: 8192},
 }
 
