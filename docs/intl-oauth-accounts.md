@@ -250,6 +250,56 @@ curl -s -N -X POST "https://www.codebuddy.ai/v2/chat/completions" \
 第三方注册表记录 `promoFreeUntil: "2026-09-24"`（UTC 零点起不再免费）。
 这不是官方公告，是社区维护的注册表（`techysy/10router`）里的值，仅供参考。
 
+### 实测：intl 上真正免费的模型（2026-09-12）
+
+把 intl 账号能看到的模型逐个打一遍、按响应里的 `usage.credit` 判定：
+
+| 模型 | credit | 上下文 | 限流 |
+|---|---|---|---|
+| `deepseek-v4.1-flash` | **0** | 1M | 有限流，重置时间见 `6004` 的 `reset at` |
+| `hy3` | **0** | 192K | — |
+| `hy4-preview-f` | **0** | 1M | 连打 15 次零限流 |
+| `hy4-preview` | 0.05 | 1M | — |
+
+**注意 `hy4-preview` 与 `hy4-preview-f` 的区别**：同一次请求（378 tokens），
+前者扣 0.05、后者是 0。带 `-f` 的那个才是免费变体。社区注册表把免费标在
+`hy4-preview` 上是记错了条目。
+
+两者都不在 `www.codebuddy.ai/v3/config` 的目录里（目录里只有 `hy3` / `hy4-preview`），
+但 intl 端点接受——**目录不列全部可用模型**，要实测。
+
+### 判定方法（别踩我踩过的坑）
+
+不能只看 `credit == 0` 就判免费。上游有时返回**空响应**（`tokens = 0`），
+这时 `credit` 也是 0，看起来像免费。正确判据是：
+
+```
+tokens > 0  &&  credit == 0     → 真的免费
+tokens == 0 &&  credit == 0     → 这次调用失败了，重试再判
+credit > 0                       → 收费
+```
+
+GPT 系列（`gpt-5.4` / `gpt-5.5` / `gpt-5.6-*` / `gpt-6-astra`）大量出现空响应，
+不重试就会整批误判成免费；真跑起来它们很贵（`gpt-6-astra` 单次小请求约 2 credit）。
+
+### 其余模型（同期实测，供对照）
+
+| 模型 | credit / 小请求 |
+|---|---|
+| `fast-model` | 0.01 |
+| `glm-5.3-flash` | 0.01 |
+| `deepseek-v4.1-flash-sg` | 0.01 |
+| `glm-5.1` / `glm-5.2` | 0.03 |
+| `kimi-k2.6` | 0.03 |
+| `balanced-model` | 0.04 |
+| `glm-5.3` | 0.09 |
+| `kimi-k3` | 0.41 |
+| `gemini-3.5-flash` | 0.27 |
+
+大量模型在 intl 直接 `HTTP 400`（`deepseek-v4-flash` / `deepseek-v4-pro` /
+`minimax-m2.*` / `glm-4.*` / `hy3-x` / `kimi-k2-thinking` 等）——
+这些只在 CN 可用的老名字。
+
 ---
 
 ## 六、怎么搞更多账号（轮询用）
