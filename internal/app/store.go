@@ -775,6 +775,9 @@ SET status = 'active',
     total_tokens = total_tokens + ?,
     last_success_at = ?,
     last_error = NULL,
+    -- 状态码是 last_error 的附带信息，清错误时必须一起清；
+    -- 否则面板会出现「成功过的账号还带着 400」这种自相矛盾的快照。
+    last_error_status = NULL,
     updated_at = ?
 WHERE id = ?`, credit, prompt, completion, total, ts, ts, id)
 	s.autoPauseAccountIfNeeded(id, ts)
