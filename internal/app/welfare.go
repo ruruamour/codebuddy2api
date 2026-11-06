@@ -619,8 +619,10 @@ func (s *Server) StartWelfareLoop(ctx context.Context) {
 		lastSlot := map[WelfareKind]string{}
 		ticker := time.NewTicker(5 * time.Minute)
 		defer ticker.Stop()
-		// 启动后先跑一次：服务重启（部署、OOM）之后不该等到下一个整点才补今天的活
-		s.runWelfareSlots(ctx, lastSlot)
+		// 启动补跑：部署 / OOM / 重启都可能把当天整点错过（比如 19 点重启、
+		// 签到时段是 9 与 21），这时候不该等到明天才补今天的活。
+		// 只补「今天还没结果」的账号，重复重启不会反复发写请求。
+		s.runWelfareCatchUp(ctx)
 		for {
 			select {
 			case <-ctx.Done():
@@ -630,6 +632,76 @@ func (s *Server) StartWelfareLoop(ctx context.Context) {
 			s.runWelfareSlots(ctx, lastSlot)
 		}
 	}()
+}
+
+// runWelfareCatchUp 启动时补跑当天未完成的福利任务。
+//
+// 判据是「库里今天的记录是否已终态」，而不是时间：
+//   - ok / already / skipped / unsupported 都是终态（今天不用再做）
+//   - failed 与「没有记录」需要补
+//
+// 上游状态接口仍是最后一道幂等闸门，所以即使补跑也不会重复领取。
+func (s *Server) runWelfareCatchUp(ctx context.Context) {
+	accounts, err := s.store.ListAccounts()
+	if err != nil {
+		log.Printf("welfare: 启动补跑列账号失败: %v", err)
+		return
+	}
+	day := todayCST()
+	runCount, skipCount := 0, 0
+	for _, account := range accounts {
+		if ctx.Err() != nil {
+			return
+		}
+		if !account.Enabled {
+			continue
+		}
+		full, err := s.store.GetAccount(account.ID)
+		if err != nil || full == nil {
+			continue
+		}
+		kind := realmKind(s.upstream.ProfileFor(*full))
+		if kind == WelfareCheckin && !s.cfg.CheckinAuto {
+			continue
+		}
+		if kind == WelfareBonus && !s.cfg.DailyBonusAuto {
+			continue
+		}
+		if welfareTerminalToday(s.store.Welfare(account.ID), kind, day) {
+			skipCount++
+			continue
+		}
+		if run := s.runWelfareFor(*full); run != nil {
+			runCount++
+		}
+	}
+	log.Printf("welfare: 启动补跑完成（执行 %d，今日已完成 %d）", runCount, skipCount)
+}
+
+// welfareTerminalToday 报告某个账号今天的某类福利是否已有终态结果。
+func welfareTerminalToday(state *WelfareState, kind WelfareKind, day string) bool {
+	if state == nil {
+		return false
+	}
+	switch kind {
+	case WelfareCheckin:
+		if state.Checkin == nil || state.Checkin.Day != day {
+			return false
+		}
+		switch state.Checkin.Status {
+		case WelfareOK, WelfareAlready, WelfareSkipped, WelfareUnsupported:
+			return true
+		}
+	case WelfareBonus:
+		if state.Bonus == nil || state.Bonus.Day != day {
+			return false
+		}
+		switch state.Bonus.Status {
+		case WelfareOK, WelfareAlready, WelfareSkipped, WelfareUnsupported:
+			return true
+		}
+	}
+	return false
 }
 
 // runWelfareSlots 判断当前时段该跑哪些任务。

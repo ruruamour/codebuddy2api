@@ -431,3 +431,53 @@ func fakeJWTSubject(sub string) string {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"` + sub + `","exp":2000000000}`))
 	return header + "." + payload + ".not-a-real-signature"
 }
+
+// 启动补跑的判据：今天已有终态就不再动，failed 或没记录才补。
+func TestWelfareTerminalToday(t *testing.T) {
+	day := "2026-11-06"
+	cases := []struct {
+		name  string
+		state *WelfareState
+		kind  WelfareKind
+		want  bool
+	}{
+		{name: "没有记录", state: nil, kind: WelfareCheckin, want: false},
+		{
+			name:  "签到今天成功",
+			state: &WelfareState{Checkin: &CheckinState{Day: day, Status: WelfareOK}},
+			kind:  WelfareCheckin, want: true,
+		},
+		{
+			name:  "签到今天失败需要补",
+			state: &WelfareState{Checkin: &CheckinState{Day: day, Status: WelfareFailed}},
+			kind:  WelfareCheckin, want: false,
+		},
+		{
+			name:  "签到记录是昨天的（不是今天终态）",
+			state: &WelfareState{Checkin: &CheckinState{Day: "2026-11-05", Status: WelfareOK}},
+			kind:  WelfareCheckin, want: false,
+		},
+		{
+			name:  "打点今天已点亮",
+			state: &WelfareState{Bonus: &BonusState{Day: day, Status: WelfareAlready}},
+			kind:  WelfareBonus, want: true,
+		},
+		{
+			name:  "ck_ 号的 unsupported 也算终态（不再重试）",
+			state: &WelfareState{Checkin: &CheckinState{Day: day, Status: WelfareUnsupported, Supported: false}},
+			kind:  WelfareCheckin, want: true,
+		},
+		{
+			name:  "一类终态不能覆盖另一类",
+			state: &WelfareState{Checkin: &CheckinState{Day: day, Status: WelfareOK}},
+			kind:  WelfareBonus, want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := welfareTerminalToday(tc.state, tc.kind, day); got != tc.want {
+				t.Errorf("welfareTerminalToday = %v，期望 %v", got, tc.want)
+			}
+		})
+	}
+}
