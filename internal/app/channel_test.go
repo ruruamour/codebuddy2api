@@ -288,6 +288,10 @@ func TestDetectTypeSlug(t *testing.T) {
 		{"", "www.codebuddy.ai", "", TypeSlugIntl},
 		{"", "www.workbuddy.ai", "", TypeSlugWorkBuddy},
 		{"", "", "https://copilot.tencent.com/v2/chat/completions", TypeSlugCN},
+		// CN 域上有两条互斥的凭证路线：ck_ 是订阅 key，JWT 是桌面端 OAuth 会话。
+		// 两者认证方式不同（X-Api-Key vs Authorization），共用一个类型就会发错。
+		{"eyJhbGciOiJSUzI1NiJ9.eyJhIjoxfQ.sig", "www.codebuddy.cn", "", TypeSlugCNOAuth},
+		{"eyJhbGciOiJSUzI1NiJ9.eyJhIjoxfQ.sig", "", "https://copilot.tencent.com/v2/chat/completions", TypeSlugCNOAuth},
 		// 上游比凭证形态更可信：workbuddy 也是 JWT，但不是 codebuddy.ai
 		{"eyJhbGciOiJSUzI1NiJ9.eyJhIjoxfQ.sig", "www.workbuddy.ai", "", TypeSlugWorkBuddy},
 		{"某种没见过的凭证", "", "", ""},
@@ -333,5 +337,39 @@ func TestDeleteCatalogModel_RejectsReferenced(t *testing.T) {
 	}
 	if err := store.DeleteCatalogModel("deepseek-v4.1-flash"); err == nil {
 		t.Error("intl 类型还在用这个模型，不该能删")
+	}
+}
+
+// 已有的库升级到带新内置类型的版本时，新类型必须能自己补进来。
+//
+// seedAccountTypes 只在类型表为空时跑（那是装机）；类型表一旦有内容，后续版本
+// 新增的内置类型就永远进不来——运营得在面板上手建一个 slug 恰好叫 cn-oauth
+// 的类型才能用签到，等于新功能对老实例不可用。
+func TestBootstrap_AddsNewBuiltinTypesToExistingLibrary(t *testing.T) {
+	store := newTestStore(t)
+	cfg := cnConfig()
+	if err := store.Bootstrap(cfg); err != nil {
+		t.Fatalf("bootstrap: %v", err)
+	}
+	// 模拟「上一个版本还没有 cn-oauth 这个类型」
+	if _, err := store.db.Exec("DELETE FROM account_types WHERE slug = ?", TypeSlugCNOAuth); err != nil {
+		t.Fatalf("delete type: %v", err)
+	}
+	if typ, _ := store.GetAccountType(TypeSlugCNOAuth); typ != nil {
+		t.Fatal("前置条件失败：cn-oauth 没删掉")
+	}
+
+	if err := store.Bootstrap(cfg); err != nil {
+		t.Fatalf("bootstrap 2: %v", err)
+	}
+	typ, err := store.GetAccountType(TypeSlugCNOAuth)
+	if err != nil {
+		t.Fatalf("get type: %v", err)
+	}
+	if typ == nil {
+		t.Fatal("升级后 cn-oauth 类型应被补进来")
+	}
+	if typ.AuthMode != AuthModeBearer || typ.RequestShape != ShapeCN {
+		t.Errorf("cn-oauth 应是 bearer + cn 整形，得到 %q + %q", typ.AuthMode, typ.RequestShape)
 	}
 }
