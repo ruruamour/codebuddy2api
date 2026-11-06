@@ -194,8 +194,10 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) init() error {
-	_, err := s.db.Exec(`
-CREATE TABLE IF NOT EXISTS accounts (
+	if err := s.ensureWelfareTable(); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   api_key TEXT NOT NULL,

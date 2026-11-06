@@ -53,6 +53,16 @@ type Config struct {
 	// TokenRefreshCheckHours 续期巡检间隔（小时，默认 6）。
 	// 独立于余额轮询：续期是账号存活的底线，不能被 CREDITS_REFRESH_MIN=0 顺手关掉。
 	TokenRefreshCheckHours int
+	// CheckinAuto 是否启用 CN 每日签到（默认开启）。
+	CheckinAuto bool
+	// CheckinHours CN 签到的触发时段（中国时区，默认 9 点与 21 点）。
+	// 两个时段是为了容错：早上那次遇上网络/上游抖动，晚上还有一次。
+	CheckinHours []int
+	// DailyBonusAuto 是否启用 intl 每日活跃奖励（默认开启）。
+	DailyBonusAuto bool
+	// DailyBonusHours intl 打点的触发时段（中国时区，默认 8/12/16/20）。
+	// 多次只会发生在「上次没点亮」的情况：点亮后不再打点（打一次热力值 +2）。
+	DailyBonusHours []int
 }
 
 // ShapeIntl / ShapeCN 是 RequestShape 的两个取值。
@@ -104,6 +114,10 @@ func LoadConfig() Config {
 		AdminAccessEmails:      envStringSet("CODEBUDDY2API_ADMIN_ACCESS_EMAILS", ""),
 		CreditsRefreshMinutes:  envInt("CODEBUDDY2API_CREDITS_REFRESH_MIN", 10),
 		CreditsMinRemain:       envFloat("CODEBUDDY2API_CREDITS_MIN_REMAIN", 0.5),
+		CheckinAuto:            envBool("CODEBUDDY2API_CHECKIN_AUTO", true),
+		CheckinHours:           envIntList("CODEBUDDY2API_CHECKIN_HOURS", "9,21"),
+		DailyBonusAuto:         envBool("CODEBUDDY2API_DAILY_BONUS_AUTO", true),
+		DailyBonusHours:        envIntList("CODEBUDDY2API_DAILY_BONUS_HOURS", "8,12,16,20"),
 	}
 }
 
@@ -223,6 +237,27 @@ func splitCSV(value string) []string {
 	for _, part := range parts {
 		if item := strings.TrimSpace(part); item != "" {
 			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// envIntList 解析逗号分隔的整型列表（福利时段），非法项直接丢弃而不是整条回退：
+// 用户写 "9,21,oops" 时应当只忽略那个打错的项，而不是把整张时刻表变成默认值。
+func envIntList(name, fallback string) []int {
+	result := make([]int, 0, 4)
+	for _, item := range splitCSV(envString(name, fallback)) {
+		parsed, err := strconv.Atoi(item)
+		if err != nil || parsed < 0 || parsed > 23 {
+			continue
+		}
+		result = append(result, parsed)
+	}
+	if len(result) == 0 {
+		for _, item := range splitCSV(fallback) {
+			if parsed, err := strconv.Atoi(item); err == nil && parsed >= 0 && parsed <= 23 {
+				result = append(result, parsed)
+			}
 		}
 	}
 	return result

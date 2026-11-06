@@ -251,6 +251,19 @@
       </p>
     </section>
     <section>
+      <div class="sec-head">
+        <h2>每日福利</h2><span class="spacer"></span>
+        <button class="mini" type="button" onclick="runWelfare('')">全部执行</button>
+        <button class="mini" type="button" onclick="runWelfare('checkin')">国内签到</button>
+        <button class="mini" type="button" onclick="runWelfare('bonus')">国际点亮</button>
+      </div>
+      <p class="hint">
+        国内号走 Buddy 加油站签到（100 积分/天）；国际号走成长热力墙，点亮当天次日到账 30 积分。
+        两边都以<b>上游状态接口</b>为准，重复点按钮不会重复领取；rc_ 订阅 key 的上游不给签到，会显示为「凭证不支持」。
+      </p>
+      <div id="welfareBox"></div>
+    </section>
+    <section>
       <div class="sec-head"><h2>需要关注的账号</h2></div>
       <div id="problemBox"></div>
     </section>
@@ -633,7 +646,7 @@
 </dialog>
 
 <script>
-  let state = { accounts: [], stats: null, settings: null, types: [], catalog: [], editingType: "" };
+  let state = { accounts: [], stats: null, settings: null, types: [], catalog: [], editingType: "", welfare: {}, welfareConfig: {} };
   const addForm = document.getElementById("addForm");
   const typeForm = document.getElementById("typeForm");
   const modelForm = document.getElementById("modelForm");
@@ -1129,6 +1142,83 @@
       <div class="stat"><div class="k">有积分的号</div><div class="v">${withCredits.length}</div></div>
       <div class="stat"><div class="k">OAuth 凭证号</div><div class="v">${free}</div></div>`;
   }
+  // ── 每日福利 ─────────────────────────────────────────
+  // 状态全部来自 /admin/welfare；判定口径以「上游状态接口」为准，
+  // 面板只做展示，不自己推断今天到底该不该领。
+  const WELFARE_LABEL = {
+    ok: ["ok", "本次完成"],
+    already: ["accent", "今天已完成"],
+    unsupported: ["", "凭证不支持"],
+    skipped: ["", "跳过"],
+    failed: ["bad", "失败"],
+  };
+  function welfareBadge(status) {
+    const [cls, text] = WELFARE_LABEL[status] || ["", "未执行"];
+    return `<span class="badge ${cls}">${esc(text)}</span>`;
+  }
+  function welfareAgo(checkedAt) {
+    if (!checkedAt) return "";
+    const sec = Math.max(0, Math.floor(Date.now() / 1000) - Number(checkedAt));
+    return `<div class="row-sub">${fmtDuration(sec)}前</div>`;
+  }
+  function renderWelfare() {
+    const box = document.getElementById("welfareBox");
+    if (!box) return;
+    const rows = state.accounts.filter((a) => a.enabled);
+    if (!rows.length) {
+      box.innerHTML = '<p class="hint" style="margin:0">没有启用的账号。</p>';
+      return;
+    }
+    const cn = state.welfareConfig || {};
+    const head = `<div class="row-sub" style="margin-bottom:8px">
+      国内签到 ${cn.checkin_auto ? "开启" : "关闭"}（${(cn.checkin_hours || []).join(", ") || "-"} 点）·
+      国际点亮 ${cn.daily_bonus_auto ? "开启" : "关闭"}（${(cn.daily_bonus_hours || []).join(", ") || "-"} 点）
+    </div>`;
+    box.innerHTML = head + `<div class="scroll"><table><thead><tr>
+        <th>账号</th><th>渠道</th><th>国内签到</th><th>国际每日奖励</th><th></th>
+      </tr></thead><tbody>` +
+      rows.map((a) => {
+        const w = (state.welfare || {})[a.id] || {};
+        const ci = w.checkin;
+        const bo = w.bonus;
+        const isIntl = a.request_shape === "intl" ||
+          (state.types.find((t) => t.slug === a.type_slug) || {}).request_shape === "intl";
+        const ciCell = ci
+          ? `${welfareBadge(ci.status)}<div class="row-sub">${esc(ci.detail || "")}</div>${welfareAgo(ci.checked_at)}`
+          : '<span style="color:var(--ink-3)">-</span>';
+        const boCell = bo
+          ? `${welfareBadge(bo.status)}<div class="row-sub">${esc(bo.detail || "")}</div>${welfareAgo(bo.checked_at)}`
+          : '<span style="color:var(--ink-3)">-</span>';
+        return `<tr>
+          <td><div class="row-name">${esc(a.name)}</div><div class="row-sub mono">#${a.id}</div></td>
+          <td>${isIntl ? '<span class="badge accent">国际</span>' : '<span class="badge">国内</span>'}</td>
+          <td>${isIntl ? '<span style="color:var(--ink-3)">不适用</span>' : ciCell}</td>
+          <td>${isIntl ? boCell : '<span style="color:var(--ink-3)">不适用</span>'}</td>
+          <td><button class="mini" onclick="runWelfareOne(${a.id}, '${isIntl ? "bonus" : "checkin"}')">立即执行</button></td>
+        </tr>`;
+      }).join("") + "</tbody></table></div>";
+  }
+  async function runWelfare(kind) {
+    show(kind ? "正在执行福利任务…" : "正在执行全部福利任务…");
+    try {
+      await api("/admin/welfare/run", { method: "POST", body: JSON.stringify({ kind: kind || "" }) });
+      show("福利任务已执行");
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+  // 单账号触发：只跑这一个号（上游状态接口会拦住重复领取，所以多点几下也安全）
+  async function runWelfareOne(id, kind) {
+    const account = state.accounts.find((a) => a.id === id);
+    if (!account) return;
+    if (!confirm(`立即对「${account.name}」执行${kind === "bonus" ? "国际点亮" : "国内签到"}？`)) return;
+    show(`正在处理「${account.name}」…`);
+    try {
+      await api("/admin/welfare/run", { method: "POST", body: JSON.stringify({ account_id: id }) });
+      show(`「${account.name}」已处理`);
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
+  }
+
   function renderProblems() {
     const bad = state.accounts.filter((a) =>
       !a.enabled || a.credits_paused || a.status === "cooldown" || a.consecutive_failures > 0 ||
@@ -1446,19 +1536,23 @@
       return;
     }
     try {
-      const [accounts, stats, settings, types, models] = await Promise.all([
+      const [accounts, stats, settings, types, models, welfare] = await Promise.all([
         api("/admin/accounts"), api("/admin/stats"), api("/admin/settings"),
         api("/admin/types"), api("/admin/models"),
+        api("/admin/welfare").catch(() => ({ welfare: {} })),
       ]);
       state.accounts = accounts.accounts || [];
       state.stats = stats;
       state.settings = settings;
       state.types = types.types || [];
       state.catalog = models.models || [];
+      state.welfare = welfare.welfare || {};
+      state.welfareConfig = welfare.config || {};
       document.getElementById("authSection").style.borderColor = "";
       document.getElementById("authHint").textContent =
         "口令只存在浏览器本地（localStorage），用于调用 /admin 接口。";
       renderStats(); renderCredits(); renderProblems(); renderAccounts(); renderSettings(); renderUsage();
+      renderWelfare();
       renderTypes(); renderCatalog(); renderTypeOptions();
       const bearer = state.accounts.filter((a) => a.auth_mode === "bearer").length;
       document.getElementById("instanceSub").textContent =

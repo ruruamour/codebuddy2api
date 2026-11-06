@@ -32,6 +32,7 @@ func main() {
 	defer stopLoops()
 	server.StartCreditsLoop(rootCtx)
 	server.StartTokenRefreshLoop(rootCtx)
+	server.StartWelfareLoop(rootCtx)
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr(),
 		Handler:           server.Routes(),

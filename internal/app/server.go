@@ -60,6 +60,8 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/accounts/import", s.withAdminAuth(s.handleAccountsImport))
 	mux.HandleFunc("/admin/stats", s.withAdminAuth(s.handleAdminStats))
 	mux.HandleFunc("/admin/credits/refresh", s.withAdminAuth(s.handleCreditsRefresh))
+	mux.HandleFunc("/admin/welfare", s.withAdminAuth(s.handleAdminWelfare))
+	mux.HandleFunc("/admin/welfare/run", s.withAdminAuth(s.handleAdminWelfareRun))
 	mux.HandleFunc("/admin/settings", s.withAdminAuth(s.handleAdminSettings))
 	mux.HandleFunc("/admin/types", s.withAdminAuth(s.handleAdminTypes))
 	mux.HandleFunc("/admin/types/", s.withAdminAuth(s.handleAdminTypeBySlug))

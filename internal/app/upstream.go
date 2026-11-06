@@ -75,10 +75,80 @@ func (c *UpstreamClient) PreparePayload(body map[string]any, profile AccountProf
 		payload["model"] = c.defaultModel(profile)
 	}
 	sanitizeReasoningEffort(payload, profile.RequestShape)
+	// tool_choice 归一化必须在整形之前：上游把该字段声明成 string，OpenAI 允许的对象形态
+	// 会被 Go 解码器直接拒收（见 normalizeToolChoice）。
+	normalizeToolChoice(payload)
 	if profile.RequestShape == ShapeIntl {
 		payload = shapeIntlPayload(payload)
 	}
 	return payload
+}
+
+// normalizeToolChoice 把 OpenAI 的对象形态 tool_choice 改写成上游能吃的字符串形态。
+//
+// 上游（CN 与 intl 同一条 Go 结构）把 tool_choice 声明成 string，收到
+// {"type":"function","function":{"name":"x"}} 这种合法 OpenAI 形态时整条请求 400：
+//
+//	code 11101 "Unmarshal chat params failed with error:
+//	            json: cannot unmarshal object into Go struct field Request.tool_choice of type string"
+//
+// 改造前这条错误占了线上请求的 13%–16%（按账号 last_error 统计），客户端只要用
+// 强制函数调用就必挂。映射规则以「语义等价」为准：
+//
+//	"none" / {"type":"none"}          → 删 tool_choice，并删掉 tools/functions
+//	{"type":"auto"|"required"}        → "auto" / "required"
+//	{"type":"function","function":{"name":"x"}} → "x"
+//	{"type":"function"} 但取不到函数名      → "auto"（宁可自动选，也不要 400）
+//	其余对象 / 非标量                          → 删 tool_choice
+//
+// "none" 为什么要连 tools 一起删：上游收下 tool_choice="none" 但并不遵守，只要 tools[]
+// 非空模型照样吐 tool_calls（两个仍在维护的同类网关都记了这条）。唯一可靠的「不许调工具」
+// 就是不把工具定义发上去。
+func normalizeToolChoice(payload map[string]any) {
+	raw, present := payload["tool_choice"]
+	if !present {
+		return
+	}
+	suppressTools := func() {
+		delete(payload, "tools")
+		delete(payload, "functions")
+	}
+
+	switch value := raw.(type) {
+	case string:
+		if strings.EqualFold(strings.TrimSpace(value), "none") {
+			delete(payload, "tool_choice")
+			suppressTools()
+		}
+	case map[string]any:
+		kind := strings.ToLower(strings.TrimSpace(stringValue(value["type"], "")))
+		switch kind {
+		case "none":
+			delete(payload, "tool_choice")
+			suppressTools()
+		case "auto", "required":
+			payload["tool_choice"] = kind
+		case "function":
+			name := ""
+			if function, ok := value["function"].(map[string]any); ok {
+				name = stringValue(function["name"], "")
+			}
+			if name == "" {
+				// 少数客户端把 name 放在外层
+				name = stringValue(value["name"], "")
+			}
+			if name = strings.TrimSpace(name); name != "" {
+				payload["tool_choice"] = name
+			} else {
+				payload["tool_choice"] = "auto"
+			}
+		default:
+			delete(payload, "tool_choice")
+		}
+	default:
+		// 数组、数字、bool 都不是上游认得的形态
+		delete(payload, "tool_choice")
+	}
 }
 
 // supportedReasoningEfforts 是上游实际接受的思考档位。

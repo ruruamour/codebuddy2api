@@ -124,6 +124,31 @@ upstream `usage.credit` tail packet as the persisted accounting source.
 }
 ```
 
+## Daily welfare
+
+Two independent daily tasks, both off-by-one-safe by asking the upstream state
+endpoint first:
+
+| realm | upstream write | read (authority) | notes |
+| --- | --- | --- | --- |
+| CN (`ck_...`, `intl` = no) | `POST /v2/billing/meter/daily-checkin` | `POST /v2/billing/meter/checkin-activity-status` | 100 credits/day. `ck_` subscription keys get `403 API key not allowed for this path or method` — recorded once as `unsupported`, never retried. |
+| intl (OAuth/JWT) | `POST /v2/report` | `GET /activity/growth/heatmap` | Lights the growth heat wall; the 30-credit Bonus Pack lands the next China-time day. |
+
+The `/v2/report` beacon is **not** day-idempotent — every send adds `+2` to the
+heatmap score. So the runner reads the heatmap first and sends nothing when today
+is already lit. The `userId` field must be the access token's `sub`; without it
+the upstream still answers `200` but the heatmap does not move, so a non-JWT
+credential is reported as `unsupported` instead of burning a request.
+
+Schedules are in China time (`CODEBUDDY2API_CHECKIN_HOURS`, default `9,21`;
+`CODEBUDDY2API_DAILY_BONUS_HOURS`, default `8,12,16,20`). Extra slots only cost a
+read once the day is done, and they cover a failed earlier slot.
+
+Statuses: `ok`, `already` (upstream confirms it was done), `unsupported`
+(credential type cannot do it), `skipped` (activity not enabled), `failed`
+(everything else; retried next slot). Manual trigger: `POST /admin/welfare/run`
+with `{"kind":"checkin"|"bonus"}` or `{"account_id":N}`.
+
 ## Scheduler behavior
 
 - pool strategy is configurable from the admin settings page or
