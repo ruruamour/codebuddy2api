@@ -46,6 +46,7 @@ type AccountType struct {
 // 以前它散在 portable.go 的 domainPresets 和面板的下拉框里，两处各写一遍。
 const (
 	TypeSlugCN        = "cn"
+	TypeSlugCNOAuth   = "cn-oauth"
 	TypeSlugIntl      = "intl"
 	TypeSlugWorkBuddy = "workbuddy"
 )
@@ -81,6 +82,23 @@ func builtinAccountTypes() []AccountType {
 			Enabled:      true,
 			Builtin:      true,
 			Notes:        "ck_ 开头的订阅 key，按积分计费，余额耗尽会自动暂停",
+		},
+		{
+			Slug:         TypeSlugCNOAuth,
+			Name:         "CodeBuddy 国内 OAuth",
+			AuthMode:     AuthModeBearer,
+			UpstreamURL:  "https://copilot.tencent.com/v2/chat/completions",
+			Domain:       "www.codebuddy.cn",
+			RequestShape: ShapeCN,
+			Models:       defaultCNTypeModels(),
+			Priority:     0,
+			Enabled:      true,
+			Builtin:      true,
+			Notes: "国内站（codebuddy.cn）的 OAuth 会话凭证，与 ck_ 同一个上游，只差认证方式。" +
+				"它的唯一不可替代之处是每日签到：ck_ 订阅 key 打 daily-checkin 一律 403，" +
+				"只有桌面端 OAuth 会话能领那 100 积分。" +
+				"但 refresh token 每次使用都会轮换、access token 只有 30 天，比 ck_ 脆得多，" +
+				"所以带这类号的实例应把它排在 ck_ 之后，只做签到 + 溢出。",
 		},
 		{
 			Slug:         TypeSlugIntl,
@@ -266,18 +284,26 @@ func DetectTypeSlug(credential string, domain string, upstreamURL string) string
 	if host == "" {
 		host = strings.ToLower(HostOfURL(upstreamURL))
 	}
+	authMode := DetectAuthMode(credential)
 	switch {
 	case strings.Contains(host, "workbuddy.ai"):
 		return TypeSlugWorkBuddy
 	case strings.Contains(host, "codebuddy.ai"):
 		return TypeSlugIntl
 	case strings.Contains(host, "codebuddy.cn"), strings.Contains(host, "copilot.tencent.com"):
+		// CN 只一个域名，但有两条互斥的凭证路线：ck_ 订阅 key 和桌面端 OAuth 会话。
+		// 两者认证方式不同，不能共用一个类型，否则一条会被按另一条的 header 发出去。
+		if authMode == AuthModeBearer {
+			return TypeSlugCNOAuth
+		}
 		return TypeSlugCN
 	}
-	switch DetectAuthMode(credential) {
+	switch authMode {
 	case AuthModeAPIKey:
 		return TypeSlugCN
 	case AuthModeBearer:
+		// 没有域名提示时认不出来：CN 和 intl 的 OAuth 都能走 bearer。
+		// 宁可归到 intl（它本来就是 bearer 类型），CN OAuth 必须带域名或显式指定类型。
 		return TypeSlugIntl
 	}
 	return ""

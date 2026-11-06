@@ -44,10 +44,46 @@ func (s *Store) Bootstrap(cfg Config) error {
 	if err := s.seedAccountTypes(cfg, previous.Models); err != nil {
 		return err
 	}
+	if err := s.ensureBuiltinTypes(); err != nil {
+		return err
+	}
 	if err := s.ensureTypeModelsInCatalog(); err != nil {
 		return err
 	}
 	return s.assignMissingTypeSlugs()
+}
+
+// ensureBuiltinTypes 把代码里新增的内置类型补进已有的库。
+//
+// seedAccountTypes 只在类型表为空时跑（那是“装机”），但类型表一旦有了内容，
+// 后续版本新加的内置类型就永远进不来——运营得在面板上手建一个 slug 恰好叫
+// cn-oauth 的类型才能用新功能，那还不如报个错。
+//
+// 已存在的类型一概不动：那是操作者可能在面板里改过的配置（优先级、模型集合），
+// 被升级覆盖掉比少一个内置类型更难受。
+func (s *Store) ensureBuiltinTypes() error {
+	existing, err := s.ListAccountTypes()
+	if err != nil {
+		return err
+	}
+	known := make(map[string]struct{}, len(existing))
+	for _, item := range existing {
+		known[item.Slug] = struct{}{}
+	}
+	added := 0
+	for _, typ := range builtinAccountTypes() {
+		if _, ok := known[typ.Slug]; ok {
+			continue
+		}
+		if err := s.UpsertAccountType(typ); err != nil {
+			return err
+		}
+		added++
+	}
+	if added > 0 {
+		log.Printf("types: 补入 %d 个新增内置类型", added)
+	}
+	return nil
 }
 
 // seedAccountTypes 首次灌入内置类型。
