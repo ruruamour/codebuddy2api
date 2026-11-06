@@ -47,6 +47,16 @@ var DefaultCodeBuddyModelIDs = []string{
 	"kimi-k2.6",
 }
 
+// CodeBuddyModelCatalog 是“装机种子”：空库首启时灌进模型表的那一份元信息。
+//
+// 它**不是**对外提供哪些模型的声明，也不是“这些模型现在还能用”的声明——启用列表在
+// 模型表的 enabled 列里，由操作者在面板上改。这里只有两个硬要求：
+//
+//  1. 第一项必须放一个**安全**的模型。空库首启时第一项就是 default_model，
+//     而 default_model 是「请求没带 model」时的兵底。
+//  2. 不要因为上游把某个模型下架了就从这里划掉：种子里少一个模型，新装的实例
+//     在面板上就看不到它，而已经装了的老库反而还留着——两边不一致比多一行更难查。
+//     真正判断能不能用靠 `/v3/config`，不靠这份表。
 var CodeBuddyModelCatalog = []ModelInfo{
 	{ID: "glm-5.1", Name: "GLM-5.1", Credits: "x1.06 credits", MaxInputTokens: 200000, MaxOutputTokens: 48000},
 	// deepseek 这三个官方没公布倍率与上下文，留空显示「—」，别编数字——
