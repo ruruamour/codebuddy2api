@@ -30,8 +30,19 @@ const (
 	PoolStrategyFillFirst  = "fill-first"
 )
 
+// DefaultCodeBuddyModelIDs 是「空库首启」的种子启用列表。
+//
+// 第一项就是 default_model（请求不带 model 时走它），所以这里的顺序是行为，不是美观：
+//
+//	glm-5.1  曾经排第一，但它已被上游从 /v3/config 目录里摘掉。摘掉之后它变成了
+//	         “必须显式给 reasoning_effort 才肯跑”的遗留模型（不传就 11150）。
+//	         把它放在第一位等于让「不写 model 的请求」 100% 失败——这是生产事故，
+//	         不是理论风险：线上 default_model 就是 glm-5.1，每次裸请求都 11150。
+//
+// 现在换成 deepseek-v4.1-flash：它在目录里、不限档次、CN 不限量免费
+// （实测 credit=0），是最安全的兵底。glm-5.1 保留在目录里，想用的人显式请求就能用。
 var DefaultCodeBuddyModelIDs = []string{
-	"glm-5.1",
+	"deepseek-v4.1-flash",
 	"minimax-m2.7",
 	"kimi-k2.6",
 }

@@ -110,14 +110,15 @@ func TestSanitizeReasoningEffort_MapsAndDropsUnknown(t *testing.T) {
 
 // 「关思考」在两个上游的语义不同，不能统一处理。
 //
-//   - CN：off 能静默关掉思考；不传反而会思考（默认开）——丢掉 off 等于反效果
-//   - intl：off/none 都是 400；关思考只能靠「不传」
+//   - CN：只有 none 这个值能真的关掉思考。off 在 deepseek 全家上是 11133（服务商拒收），
+//     在 glm/kimi 上虽然 200 但照常思考——早期实现原样透传 off 是错的，这里钉住归一到 none。
+//   - intl：任何档位字段都可能被拒收，关思考只能靠「不传」。
 func TestSanitizeReasoningEffort_DisableSemanticsPerShape(t *testing.T) {
-	for _, level := range []string{"none", "off"} {
+	for _, level := range []string{"none", "off", "disabled", "false"} {
 		cn := map[string]any{"reasoning_effort": level}
 		sanitizeReasoningEffort(cn, ShapeCN)
-		if cn["reasoning_effort"] != level {
-			t.Errorf("CN 下 %q 应原样透传，得到 %v", level, cn["reasoning_effort"])
+		if cn["reasoning_effort"] != "none" {
+			t.Errorf("CN 下 %q 应归一为 none（off 会被 deepseek 拒收、被 glm 无视），得到 %v", level, cn["reasoning_effort"])
 		}
 
 		intl := map[string]any{"reasoning_effort": level}
@@ -125,6 +126,47 @@ func TestSanitizeReasoningEffort_DisableSemanticsPerShape(t *testing.T) {
 		if _, exists := intl["reasoning_effort"]; exists {
 			t.Errorf("intl 下 %q 应被丢弃（否则 400），得到 %v", level, intl["reasoning_effort"])
 		}
+	}
+}
+
+// 被上游从 /v3/config 摘掉的遗留模型必须显式带档位，否则 11150。
+//
+// glm-5.1 就是这种情况，而它以前恰好是 default_model：裸请求 100% 失败。
+// 修复后客户端不传档位时由我们补一个合法值，显式传的档位仍然尊重。
+func TestSanitizeReasoningEffort_FillsEffortForLegacyModels(t *testing.T) {
+	cn := map[string]any{"model": "glm-5.1"}
+	sanitizeReasoningEffort(cn, ShapeCN)
+	if cn["reasoning_effort"] != "minimal" {
+		t.Errorf("glm-5.1 不传档位时应补 minimal（否则 11150），得到 %v", cn["reasoning_effort"])
+	}
+
+	// 客户端显式给的合法档位不能被覆盖
+	explicit := map[string]any{"model": "glm-5.1", "reasoning_effort": "high"}
+	sanitizeReasoningEffort(explicit, ShapeCN)
+	if explicit["reasoning_effort"] != "high" {
+		t.Errorf("glm-5.1 显式档位应保留，得到 %v", explicit["reasoning_effort"])
+	}
+
+	// 关思考写法同样被归一为 none——但 glm-5.1 不认 none（11150），所以这里必须补档位而不是 none。
+	// 宁可违背「关思考」的字面语义，也不能让请求整个挂掉。
+	disabled := map[string]any{"model": "glm-5.1", "reasoning_effort": "off"}
+	sanitizeReasoningEffort(disabled, ShapeCN)
+	if disabled["reasoning_effort"] == "none" {
+		t.Error("glm-5.1 不接受 none，不应归一到 none")
+	}
+
+	// 正常模型不受影响：不传就不传，上游默认自行决定。
+	plain := map[string]any{"model": "deepseek-v4.1-flash"}
+	sanitizeReasoningEffort(plain, ShapeCN)
+	if _, exists := plain["reasoning_effort"]; exists {
+		t.Errorf("deepseek-v4.1-flash 不传档位时不应被添加，得到 %v", plain["reasoning_effort"])
+	}
+
+	// intl 不补：那边对未知档位更敏感，不带就是不思考。
+	intl := map[string]any{"model": "glm-5.1"}
+	sanitizeReasoningEffort(intl, ShapeIntl)
+	if _, exists := intl["reasoning_effort"]; exists {
+		t.Errorf("intl 下不应补档位，得到 %v", intl["reasoning_effort"])
 	}
 }
 

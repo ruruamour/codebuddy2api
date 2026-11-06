@@ -153,10 +153,14 @@ func normalizeToolChoice(payload map[string]any) {
 
 // supportedReasoningEfforts 是上游实际接受的思考档位。
 //
-// 逐值穷举实测（CN 与 intl 都测了）：这 6 个小写值是两个网关的交集，都接受。
-// 其余大小写变体一律 400：
+// 逐值穷举实测（CN 与 intl 都测了）：这 6 个小写值在两个网关上都不会被拒。
+// 其余写法一律 400：
 //
 //	11150 invalid_reasoning_effort "not supported by the current model"
+//	11133 the request parameters were rejected by the model provider
+//
+// 注意上游的校验比这张表严得多：每个模型只认自己那两三档，过界就 11150。
+// 我们对内只做「去空白 + 折小写」，不猜模型能力，理由见 reasoningEffortFor.
 var supportedReasoningEfforts = map[string]struct{}{
 	"minimal": {}, "low": {}, "medium": {},
 	"high": {}, "xhigh": {}, "max": {},
@@ -164,13 +168,38 @@ var supportedReasoningEfforts = map[string]struct{}{
 
 // disableReasoningEfforts 是客户端用来表达「关思考」的写法。
 //
-// 两个上游对它的处理**不一致**：
-//   - CN (copilot.tencent.com)：off 能静默关掉思考；不传反而会思考（默认开）
-//   - intl (www.codebuddy.ai)：off/none 都是 400；关思考只能靠「不传」
+// 「关思考」这个动作在两个上游上根本没有统一写法，而且**曾经写反过**：
+// 早期实现让 CN 原样透传 off，依据是「CN 认 off」。2026-11 复测推翻了这个结论：
 //
-// 所以不能统一成「一律丢弃」：那会让 CN 的关思考请求反而开始思考。
+//	模型            off        none
+//	deepseek 全家   11133      正常，thinking=0
+//	glm-5.2/5.3    正常但思考  none 才真的不思考
+//	kimi-k2.6      正常但思考  thinking=1
+//
+// 也就是说 off 在 CN 上是「随机失效」：deepseek 直接拒收，glm/kimi 当成一个不存在的
+// 低档位然后照常思考。**唯一可靠关掉思考的字段值是 none**，12 个 CN 模型全测通过。
+//
+// intl 则相反，任何档位字段都可能被拒，关思考只能靠「不传」。
 var disableReasoningEfforts = map[string]struct{}{
 	"none": {}, "off": {}, "disabled": {}, "false": {},
+}
+
+// modelEffortRequirements 记录「不带 reasoning_effort 就一定失败」的模型，以及要替它补的档位。
+//
+// 这类模型的共同点是：已经被上游从 /v3/config 目录里摘掉，但服务端那条推理链还活着，
+// 于是它变成了「必须显式告诉它用哪一档才肯跑」的遗留条目：
+//
+//	glm-5.1       不带 effort → 11150；带 minimal/low/medium/high/xhigh/max 都正常
+//	glm-5.0-turbo 同上
+//
+// 补的值取 minimal：这几个模型其实不按档位调（glm-5.1 各档位 thinking 都约 213 tok），
+// 只要字段合法就能过校验，所以挑最保守的一档。
+//
+// 为什么不直接把 glm-5.1 下架：它还能跑、还在扣积分，直接摘掉等于替用户删了一个可用模型。
+// 但默认模型绝不能落在它身上——那是 100% 失败的默认路径，见 DefaultCodeBuddyModelIDs。
+var modelEffortRequirements = map[string]string{
+	"glm-5.1":       "minimal",
+	"glm-5.0-turbo": "minimal",
 }
 
 // sanitizeReasoningEffort 归一化 reasoning_effort：
@@ -178,36 +207,75 @@ var disableReasoningEfforts = map[string]struct{}{
 //   - 未知值直接丢弃（宁可不思考，也不要整个请求 400）
 //   - 非字符串丢弃
 //   - 关思考档位按上游能力决定「原样透传」还是「丢弃」，见 disableReasoningEfforts
+//   - 某些遗留模型必须带档位，缺了就补一个，见 modelEffortRequirements
 //
 // 不能无条件 delete：上游靠这个字段决定思考档位，删了就等于强制关思考，
 // 而且 shapeIntlPayload 还要读它来决定是否加 reasoning_summary。
 func sanitizeReasoningEffort(payload map[string]any, shape string) {
-	raw, ok := payload["reasoning_effort"]
-	if !ok {
-		return
-	}
-	text, isString := raw.(string)
-	if !isString {
+	effort, present := normalizedEffort(payload)
+	if !present {
+		// 非字符串 / 空串 / BadType 都得先摘掉，否则会原样发到上游。
 		delete(payload, "reasoning_effort")
+		applyEffortRequirement(payload, shape)
 		return
 	}
-	effort := strings.ToLower(strings.TrimSpace(text))
-	if effort == "" {
-		delete(payload, "reasoning_effort")
-		return
-	}
+	model, _ := payload["model"].(string)
+	required, needsEffort := modelEffortRequirements[strings.TrimSpace(model)]
 	if _, disable := disableReasoningEfforts[effort]; disable {
 		if shape == ShapeIntl {
 			// intl 会 400，只能靠不传来关思考
 			delete(payload, "reasoning_effort")
 			return
 		}
-		// CN 认 off，原样透传才能真的关掉
-		payload["reasoning_effort"] = effort
+		// CN 统一改成 none，不原样透传 off：
+		// deepseek 拒收 off（11133），glm/kimi 收下 off 但照常思考。只能由我们归一。
+		//
+		// 例外：需要档位的遗留模型（glm-5.1）连 none 也拒收，那就只能补一个合法档位。
+		// 这违背了「关思考」的字面语义（它会思考），但总比整个请求 11150 强。
+		if needsEffort {
+			payload["reasoning_effort"] = required
+			return
+		}
+		payload["reasoning_effort"] = "none"
 		return
 	}
 	if _, supported := supportedReasoningEfforts[effort]; !supported {
+		// 未知档位丢掉后，模型仍然可能需要一个合法值。
 		delete(payload, "reasoning_effort")
+		applyEffortRequirement(payload, shape)
+		return
+	}
+	payload["reasoning_effort"] = effort
+}
+
+// normalizedEffort 取出可用的小写档位；present=false 表示这个请求里没有有效档位。
+func normalizedEffort(payload map[string]any) (string, bool) {
+	raw, ok := payload["reasoning_effort"]
+	if !ok {
+		return "", false
+	}
+	text, isString := raw.(string)
+	if !isString {
+		return "", false
+	}
+	effort := strings.ToLower(strings.TrimSpace(text))
+	if effort == "" {
+		return "", false
+	}
+	return effort, true
+}
+
+// applyEffortRequirement 给「必须带档位」的遗留模型补一个合法档位。
+//
+// 只在客户端没给（或给了个非法值被丢掉）时介入：那两种情况上游都会 11150，
+// 请求必挂；补上就恢复正常。intl 不补——intl 网关对未知档位更敏感。
+func applyEffortRequirement(payload map[string]any, shape string) {
+	if shape == ShapeIntl {
+		return
+	}
+	model, _ := payload["model"].(string)
+	effort, required := modelEffortRequirements[strings.TrimSpace(model)]
+	if !required {
 		return
 	}
 	payload["reasoning_effort"] = effort
