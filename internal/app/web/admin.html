@@ -462,7 +462,8 @@
         <h2>公共模型表</h2>
         <span class="badge" id="catalogCount">0</span>
         <span class="spacer"></span>
-        <button type="button" onclick="syncModels()">从上游拉取</button>
+        <button type="button" onclick="syncModels(false)">从上游拉取</button>
+        <button class="danger" type="button" onclick="syncModels(true)">清空重拉</button>
       </div>
       <p class="hint">
         对外 <code class="inline">/v1/models</code> 给出的就是这里勾选「启用」的模型。
@@ -971,16 +972,29 @@
     document.getElementById("catalogRows").innerHTML = rows.join("") ||
       '<tr><td colspan="7" style="color:var(--ink-3)">模型表是空的</td></tr>';
   }
-  async function syncModels() {
-    if (!confirm("从上游 /v3/config 拉取模型元信息？\n\n只更新显示名/倍率/上下文/看图能力：\n· 勾选状态不会变，新模型一律先建成停用\n· 上游目录里消失的模型只列出来，不删")) return;
+  async function syncModels(reset) {
+    if (reset) {
+      if (!confirm("清空重拉：以官方 /v3/config 目录为准重建模型表。\n\n"
+        + "· 上游目录里没有的行会被删除（不可恢复）\n"
+        + "· 这些账号类型里的相关引用也会被剪掉\n"
+        + "· 目录里还在的模型保持原勾选状态\n\n"
+        + "注意：有些模型不在目录里但实际还能调用（如 glm-5.1），重置后它们会从"
+        + "对外列表消失。确定继续？")) return;
+    } else if (!confirm("从上游 /v3/config 拉取模型元信息？\n\n只更新显示名/倍率/上下文/看图能力：\n· 勾选状态不会变，新模型一律先建成停用\n· 上游目录里消失的模型只列出来，不删")) return;
     try {
       show("正在拉取上游模型目录…");
-      const r = await api("/admin/models/sync", { method: "POST" });
+      const r = await api("/admin/models/sync" + (reset ? "?reset=1" : ""), { method: "POST" });
       const parts = [`上游 ${r.fetched} 个对话模型`];
-      if (r.created.length) parts.push(`新增 ${r.created.length}: ${r.created.join(", ")}`);
-      if (r.updated.length) parts.push(`更新 ${r.updated.length}: ${r.updated.join(", ")}`);
-      if (r.unchanged) parts.push(`未变 ${r.unchanged}`);
-      if (r.missing && r.missing.length) parts.push(`⚠ 上游已无: ${r.missing.join(", ")}`);
+      if (reset) {
+        if (r.deleted && r.deleted.length) parts.push(`删除 ${r.deleted.length}: ${r.deleted.join(", ")}`);
+        if (r.pruned_types && r.pruned_types.length) parts.push(`剪引用 ${r.pruned_types.length} 处`);
+        if (r.enabled && r.enabled.length) parts.push(`保持启用 ${r.enabled.length}`);
+      } else {
+        if (r.created.length) parts.push(`新增 ${r.created.length}: ${r.created.join(", ")}`);
+        if (r.updated.length) parts.push(`更新 ${r.updated.length}: ${r.updated.join(", ")}`);
+        if (r.unchanged) parts.push(`未变 ${r.unchanged}`);
+        if (r.missing && r.missing.length) parts.push(`⚠ 上游已无: ${r.missing.join(", ")}`);
+      }
       if (r.skipped && r.skipped.length) parts.push(`跳过非对话模型 ${r.skipped.length}`);
       show(parts.join("｜"));
       await refreshAll();
