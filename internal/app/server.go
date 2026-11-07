@@ -66,8 +66,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/types", s.withAdminAuth(s.handleAdminTypes))
 	mux.HandleFunc("/admin/types/", s.withAdminAuth(s.handleAdminTypeBySlug))
 	mux.HandleFunc("/admin/models", s.withAdminAuth(s.handleAdminModels))
-	mux.HandleFunc("/admin/models/", s.withAdminAuth(s.handleAdminModelByID))
+	// 必须在 "/admin/models/" 之前注册：Go 的 ServeMux 按最长匹配，
+	// 但两个同前缀模式里后注册的会被前者吃掉，/admin/models/sync 会被
+	// handleAdminModelByID 当成 id="sync" 的模型。
 	mux.HandleFunc("/admin/models/sync", s.withAdminAuth(s.handleAdminModelSync))
+	mux.HandleFunc("/admin/models/", s.withAdminAuth(s.handleAdminModelByID))
 	return requestLogger(mux)
 }
 
