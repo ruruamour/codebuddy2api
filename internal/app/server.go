@@ -67,6 +67,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/admin/types/", s.withAdminAuth(s.handleAdminTypeBySlug))
 	mux.HandleFunc("/admin/models", s.withAdminAuth(s.handleAdminModels))
 	mux.HandleFunc("/admin/models/", s.withAdminAuth(s.handleAdminModelByID))
+	mux.HandleFunc("/admin/models/sync", s.withAdminAuth(s.handleAdminModelSync))
 	return requestLogger(mux)
 }
 

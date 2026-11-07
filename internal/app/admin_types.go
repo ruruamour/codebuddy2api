@@ -146,3 +146,20 @@ func (s *Server) attachEffectiveModels(accounts []PublicAccount) []PublicAccount
 	}
 	return accounts
 }
+
+// handleAdminModelSync 从上游 /v3/config 同步模型元信息。
+//
+// 只更新元信息（显示名、倍率、上下文、看图能力），不动 enabled 与 sort_order，
+// 也不删行——理由见 model_sync.go 文件头。POST 触发，GET 返回说明让人知道怎么用。
+func (s *Server) handleAdminModelSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
+		return
+	}
+	report := s.SyncModelCatalog(r.Context())
+	status := http.StatusOK
+	if !report.OK {
+		status = http.StatusBadGateway
+	}
+	writeJSON(w, status, report)
+}

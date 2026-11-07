@@ -461,10 +461,16 @@
       <div class="sec-head">
         <h2>公共模型表</h2>
         <span class="badge" id="catalogCount">0</span>
+        <span class="spacer"></span>
+        <button type="button" onclick="syncModels()">从上游拉取</button>
       </div>
       <p class="hint">
         对外 <code class="inline">/v1/models</code> 给出的就是这里勾选「启用」的模型。
         「提供方」为空说明这个模型启用了却没有任何渠道能接——请求打进来会直接失败。
+        <br />
+        「从上游拉取」会读 <code class="inline">/v3/config</code> 并更新显示名、倍率、上下文、
+        看图能力。<strong>勾选状态不会被改动</strong>，新拉到的模型一律是停用状态；
+        上游目录里消失的模型只列出来、不删。
       </p>
       <div class="table-wrap">
         <table>
@@ -964,6 +970,21 @@
     });
     document.getElementById("catalogRows").innerHTML = rows.join("") ||
       '<tr><td colspan="7" style="color:var(--ink-3)">模型表是空的</td></tr>';
+  }
+  async function syncModels() {
+    if (!confirm("从上游 /v3/config 拉取模型元信息？\n\n只更新显示名/倍率/上下文/看图能力：\n· 勾选状态不会变，新模型一律先建成停用\n· 上游目录里消失的模型只列出来，不删")) return;
+    try {
+      show("正在拉取上游模型目录…");
+      const r = await api("/admin/models/sync", { method: "POST" });
+      const parts = [`上游 ${r.fetched} 个对话模型`];
+      if (r.created.length) parts.push(`新增 ${r.created.length}: ${r.created.join(", ")}`);
+      if (r.updated.length) parts.push(`更新 ${r.updated.length}: ${r.updated.join(", ")}`);
+      if (r.unchanged) parts.push(`未变 ${r.unchanged}`);
+      if (r.missing && r.missing.length) parts.push(`⚠ 上游已无: ${r.missing.join(", ")}`);
+      if (r.skipped && r.skipped.length) parts.push(`跳过非对话模型 ${r.skipped.length}`);
+      show(parts.join("｜"));
+      await refreshAll();
+    } catch (err) { show(err.message, true); }
   }
   async function toggleModel(id, enabled) {
     const m = state.catalog.find((x) => x.id === id);
