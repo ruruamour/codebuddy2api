@@ -61,6 +61,11 @@ type modelSyncReport struct {
 	// 可能是上游临时故障，也可能真的下架了，判断该由人做。
 	Missing []string `json:"missing"`
 	Skipped []string `json:"skipped"` // 上游目录里的非 chat 模型（图像/视频/内部）
+
+	// 以下仅重置模式（POST /admin/models/sync?reset=1）会填。
+	Deleted     []string `json:"deleted,omitempty"`      // 从模型表删掉的行
+	PrunedTypes []string `json:"pruned_types,omitempty"` // 被剪掉幽灵模型引用的类型
+	Enabled     []string `json:"enabled,omitempty"`      // 重置后重新启用的模型
 }
 
 // SyncModelCatalog 从上游目录拉一次模型元信息并写回模型表。
@@ -317,4 +322,104 @@ func firstPositive(values ...int) int {
 		}
 	}
 	return 0
+}
+
+// ResetModelCatalog 从上游重拉模型表，并删掉目录里没有的行（「清空重拉」）。
+//
+// 和 SyncModelCatalog 的区别：同步只补元信息、一个行都不删；重置是要把历史累积的
+// 幽灵模型（glm-4.6 / glm-4.7 / hunyuan-2.0-thinking 这类实测 11102 的）真的清掉。
+//
+// 顺序不能变，两条防线都是为了「宁可什么都不做，也不能把服务弄哑」：
+//
+//  1. **先拉、后清。** 拉取失败时模型表原封不动。反过来写的话，一旦上游抽风，
+//     模型表被清空而重拉失败，/v1/models 立刻变空，所有请求 400。
+//  2. **先剪类型引用、再删行。** ensureTypeModelsInCatalog 会在每次 Bootstrap 时
+//     把「类型引用但表里没有」的模型补回去，所以只删行不剪引用 = 重启后全部复活。
+//     反过来先删行也不行：DeleteCatalogModel 会以「仍被类型引用」拒绝删除。
+//
+// 关于「目录里没有但实际还能调用」的模型（实测 glm-5.1 / kimi-k2.6 / hy4-preview-f
+// 都还能跑）：重置就是明确「以官方目录为准」的选择，它们会从对外列表消失。
+// 想继续用它们就手动加回模型表，或改回普通同步。
+func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
+	account, err := s.syncCredential()
+	if err != nil {
+		return modelSyncReport{OK: false, Detail: err.Error()}
+	}
+	models, err := s.upstream.FetchConfigModels(ctx, account)
+	if err != nil {
+		return modelSyncReport{OK: false, Detail: "拉取失败，模型表未改动: " + err.Error()}
+	}
+
+	live := make(map[string]upstreamModel, len(models))
+	report := modelSyncReport{OK: true}
+	for _, model := range models {
+		if !isChatModel(model) {
+			report.Skipped = append(report.Skipped, model.ID)
+			continue
+		}
+		live[model.ID] = model
+	}
+	if len(live) == 0 {
+		return modelSyncReport{OK: false, Detail: "上游目录没有可用的对话模型，已中止（模型表未改动）"}
+	}
+	report.Fetched = len(live)
+	sort.Strings(report.Skipped)
+
+	// 重置前的启用列表要留着：重置不该顺手把线上模型全下架。
+	// 只要模型在上游目录里还活着，就保持它原来的开关状态。
+	previousEnabled := map[string]struct{}{}
+	before, err := s.store.ListCatalog()
+	if err != nil {
+		return modelSyncReport{OK: false, Detail: err.Error()}
+	}
+	for _, item := range before {
+		if item.Enabled {
+			previousEnabled[item.ID] = struct{}{}
+		}
+	}
+
+	// 第一步：剪掉模型类型里指向「上游已无」的引用（否则删不掉，且重启会复活）。
+	pruned, err := s.store.PruneTypeModels(live)
+	if err != nil {
+		return modelSyncReport{OK: false, Detail: "剪类型引用失败: " + err.Error()}
+	}
+	report.PrunedTypes = pruned
+
+	// 第二步：删掉模型表里上游已经没有的行。
+	deleted, err := s.store.DeleteCatalogWhere(func(id string) bool {
+		_, alive := live[id]
+		return !alive
+	})
+	if err != nil {
+		return modelSyncReport{OK: false, Detail: "删除旧模型失败: " + err.Error()}
+	}
+	report.Deleted = deleted
+
+	// 第三步：按上游目录整表重建，排序按目录顺序。
+	ids := make([]string, 0, len(live))
+	for id := range live {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for order, id := range ids {
+		model := live[id]
+		_, wasEnabled := previousEnabled[id]
+		if wasEnabled {
+			report.Enabled = append(report.Enabled, id)
+		}
+		if err := s.store.UpsertCatalogModel(CatalogModel{
+			ID:              id,
+			Name:            firstNonEmpty(model.Name, id),
+			Credits:         strings.TrimSpace(model.Credits),
+			MaxInputTokens:  firstPositive(model.MaxInputTokens, model.MaxAllowedSize),
+			MaxOutputTokens: model.MaxOutputTokens,
+			SupportsImages:  model.SupportsImages,
+			Enabled:         wasEnabled,
+			SortOrder:       order,
+		}); err != nil {
+			return modelSyncReport{OK: false, Detail: "写入 " + id + ": " + err.Error()}
+		}
+		report.Created = append(report.Created, id)
+	}
+	return report
 }

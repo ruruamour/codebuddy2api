@@ -296,3 +296,25 @@ func (s *Store) catalogRowExists(id string) (bool, error) {
 	}
 	return true, nil
 }
+
+// DeleteCatalogWhere 按谓词批量删模型行（重置模型表用）。
+//
+// 和 DeleteCatalogModel 的区别：那个是面板逐行点删除，被类型引用就拒绝——防止
+// 手滑删出一个路由黑洞。重置调用之前已经剪过类型引用了，所以这里直接删。
+func (s *Store) DeleteCatalogWhere(shouldDelete func(id string) bool) ([]string, error) {
+	catalog, err := s.ListCatalog()
+	if err != nil {
+		return nil, err
+	}
+	var deleted []string
+	for _, item := range catalog {
+		if !shouldDelete(item.ID) {
+			continue
+		}
+		if _, err := s.db.Exec("DELETE FROM model_catalog WHERE id = ?", item.ID); err != nil {
+			return deleted, err
+		}
+		deleted = append(deleted, item.ID)
+	}
+	return deleted, nil
+}

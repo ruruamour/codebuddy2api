@@ -156,7 +156,14 @@ func (s *Server) handleAdminModelSync(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"detail": "method not allowed"})
 		return
 	}
-	report := s.SyncModelCatalog(r.Context())
+	// ?reset=1 走「清空重拉」：删掉上游目录里没有的行，并以目录为准重建。
+	// 默认仍是只补元信息、一行不删——删模型不可逆，不该是默认行为。
+	var report modelSyncReport
+	if r.URL.Query().Get("reset") == "1" {
+		report = s.ResetModelCatalog(r.Context())
+	} else {
+		report = s.SyncModelCatalog(r.Context())
+	}
 	status := http.StatusOK
 	if !report.OK {
 		status = http.StatusBadGateway

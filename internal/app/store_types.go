@@ -337,3 +337,38 @@ func (s *Store) ensureTypeModelsInCatalog() error {
 	}
 	return nil
 }
+
+// PruneTypeModels 把每个类型里指向「上游已无」的模型引用去掉。
+//
+// 重置模型表必须先做这一步：ensureTypeModelsInCatalog 会在每次 Bootstrap 时把
+// 「类型引用但表里没有」的模型补回去，所以只删模型行不剪引用 = 重启后全部复活。
+func (s *Store) PruneTypeModels(live map[string]upstreamModel) ([]string, error) {
+	types, err := s.ListAccountTypes()
+	if err != nil {
+		return nil, err
+	}
+	var changed []string
+	for _, typ := range types {
+		if len(typ.Models) == 0 {
+			continue // 空列表＝不限，不用剪
+		}
+		kept := make([]string, 0, len(typ.Models))
+		var dropped []string
+		for _, model := range typ.Models {
+			if _, ok := live[strings.TrimSpace(model)]; ok {
+				kept = append(kept, model)
+				continue
+			}
+			dropped = append(dropped, model)
+		}
+		if len(dropped) == 0 {
+			continue
+		}
+		typ.Models = kept
+		if err := s.UpsertAccountType(typ); err != nil {
+			return changed, err
+		}
+		changed = append(changed, typ.Slug+" 剪掉 "+strings.Join(dropped, " "))
+	}
+	return changed, nil
+}
