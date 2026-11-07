@@ -281,11 +281,18 @@ func applyEffortRequirement(payload map[string]any, shape string) {
 	payload["reasoning_effort"] = effort
 }
 
+// fallbackModel 是「账号没声明任何模型」时的最后兜底。
+//
+// 以前是 glm-5.1，但它已被上游从 /v3/config 摘掉，且需要显式 reasoning_effort
+// 才肯跑（不传就 11150）——拿它当兜底等于把失败路径当默认值。
+// 现在用目录里最稳的那一个：在 catalog 里、接受任意 effort、CN 实测 credit=0。
+const fallbackModel = "deepseek-v4.1-flash"
+
 func (c *UpstreamClient) defaultModel(profile AccountProfile) string {
 	if len(profile.Models) > 0 && profile.Models[0] != "" {
 		return profile.Models[0]
 	}
-	return "glm-5.1"
+	return fallbackModel
 }
 
 // toAnySlice 把任意切片规整成 []any。
@@ -371,7 +378,7 @@ type StreamCallback func(wire []byte, state *StreamState) error
 func (c *UpstreamClient) StreamChat(ctx context.Context, account Account, requestBody map[string]any, callback StreamCallback) (*StreamState, error) {
 	profile := c.ProfileFor(account)
 	payload := c.PreparePayload(requestBody, profile)
-	model := stringValue(requestBody["model"], stringValue(payload["model"], "glm-5.1"))
+	model := stringValue(requestBody["model"], stringValue(payload["model"], fallbackModel))
 	state := &StreamState{
 		ResponseID: "chatcmpl-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 		Model:      model,
@@ -449,7 +456,7 @@ func (c *UpstreamClient) CompleteChat(ctx context.Context, account Account, requ
 	if state == nil {
 		state = &StreamState{
 			ResponseID: "chatcmpl-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-			Model:      stringValue(requestBody["model"], "glm-5.1"),
+			Model:      stringValue(requestBody["model"], fallbackModel),
 		}
 	}
 	return buildNonStreamResponse(state), state, err

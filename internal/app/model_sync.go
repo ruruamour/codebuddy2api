@@ -29,10 +29,9 @@ import (
 // copilot version error"）。IDE UA 与 CLI UA 返回的目录**不一样**（26 vs 37 个），
 // 所以两个都拉、取并集——只拉一个会漏掉对方独有的一半。
 const (
-	configPath       = "/v3/config"
-	ideUserAgent     = "CodeBuddyIDE/5.9.3"
-	cliConfigUA      = "CLI/2.149.0 CodeBuddy/2.149.0"
-	syncMaxCatalogUA = 40 // 上游目录撑死几十项，异常大的响应直接截断
+	configPath   = "/v3/config"
+	ideUserAgent = "CodeBuddyIDE/5.9.3"
+	cliConfigUA  = "CLI/2.149.0 CodeBuddy/2.149.0"
 )
 
 // upstreamModel 是 /v3/config 里 models[] 的一项（只取用得上的字段）。
