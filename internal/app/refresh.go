@@ -111,21 +111,31 @@ func (c *UpstreamClient) RefreshAccessToken(account Account, refreshToken string
 
 // JWTExpiry 解出 JWT 的 exp（unix 秒）；不是 JWT 或解不出来返回 0。
 func JWTExpiry(token string) int64 {
+	exp, _ := jwtWindow(token)
+	return exp
+}
+
+// jwtWindow 解出 JWT 的 exp 与 iat（unix 秒）。
+//
+// 两个都要：只凭 exp 无法计算「这个 token 总共能活多久」，而提前续期窗口必须
+// 与寿命成比例，原因见 needsRefresh。
+func jwtWindow(token string) (expiry int64, issuedAt int64) {
 	parts := strings.Split(strings.TrimSpace(token), ".")
 	if len(parts) != 3 {
-		return 0
+		return 0, 0
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return 0
+		return 0, 0
 	}
 	var claims struct {
 		Exp int64 `json:"exp"`
+		Iat int64 `json:"iat"`
 	}
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return 0
+		return 0, 0
 	}
-	return claims.Exp
+	return claims.Exp, claims.Iat
 }
 
 // refreshMu 串行化续期。
@@ -204,14 +214,31 @@ func (s *Server) ensureUsableToken(account Account) Account {
 }
 
 // needsRefresh 判断 access token 是否进入了提前续期窗口。
+//
+// 窗口是**比例**而不是固定天数：`min(提前天数, 寿命的三分之一)`。
+//
+// 固定 30 天在 intl 上没问题——那里 access token 寿命 365 天——但 CN 的 OAuth
+// 会话只发 30 天的 token，于是「提前 30 天续期」在刚签发那一刻就成立，
+// needsRefresh 恒为真：每轮余额轮询（10 分钟）都换一次。refresh token 每次
+// 使用都会轮换，这个号一天向 keycloak 要 144 对新凭证，纯粹在白白放大风控概率
+// （实测 12 小时 58 条「已自动续期」，而其他号 0 条）。
+//
+// 取寿命三分之一的意义：短命 token 在还剩 20 天时必须已经续过（给失败留出重试空间），
+// 但不能跨过签发那一刻。
 func (s *Server) needsRefresh(token string) bool {
-	expiry := JWTExpiry(token)
+	expiry, issuedAt := jwtWindow(token)
 	if expiry == 0 {
 		return false
 	}
 	ahead := time.Duration(s.cfg.TokenRefreshAheadDays) * 24 * time.Hour
 	if ahead <= 0 {
 		ahead = 30 * 24 * time.Hour
+	}
+	// 总寿命优先取 JWT 自带的 iat；没有 iat 的非标准 token 保守当 365 天。
+	if lifetime := expiry - issuedAt; issuedAt > 0 && lifetime > 0 {
+		if limit := time.Duration(lifetime) * time.Second / 3; limit < ahead {
+			ahead = limit
+		}
 	}
 	return time.Until(time.Unix(expiry, 0)) <= ahead
 }

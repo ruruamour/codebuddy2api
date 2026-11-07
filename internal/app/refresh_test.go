@@ -225,3 +225,59 @@ func TestEnsureUsableToken_LeavesValidTokenAlone(t *testing.T) {
 		t.Fatal("没过期却打了上游")
 	}
 }
+
+// 提前续期窗口不能大于等于 token 本身的寿命。
+//
+// #11（codebuddy.cn OAuth）实测踩到：access token 寿命正好是 30 天，而默认提前量
+// 也是 30 天，于是 needsRefresh 恒为真——每轮余额轮询（10 分钟）都换一次 token。
+// refresh token 每次使用都会轮换，于是这个号每天向 keycloak 要 144 对新凭证，
+// 既白白放大被风控的概率，也让日志被「已自动续期」刷满（复现时 12 小时 58 条）。
+//
+// intl 那个号寿命 365 天，30 天窗口正常，所以这个条件必须按 token 自己的寿命算。
+func TestNeedsRefresh_NeverExceedsTokenLifetime(t *testing.T) {
+	store := newTestStore(t)
+	cfg := Config{TokenRefreshAheadDays: 30}
+	srv := NewServer(cfg, store)
+
+	// 寿命 30 天、刚签发：不能判成需要续期
+	fresh := makeJWTWithLifetime(t, 30, 0)
+	if srv.needsRefresh(fresh) {
+		t.Error("刚签发的 30 天 token 不该立刻需要续期——提前量等于寿命时窗口会被自己撑满")
+	}
+	// 同一个 token 允许拖到只剩寿命三分之一以内，那时必须续期
+	if srv.needsRefresh(makeJWTWithLifetime(t, 30, 15)) {
+		t.Error("30 天 token 还剩 15 天（一半寿命）时不该续期")
+	}
+	if !srv.needsRefresh(makeJWTWithLifetime(t, 30, 25)) {
+		t.Error("30 天 token 只剩 5 天时必须续期")
+	}
+	// 寿命 365 天的长 token：30 天提前量照旧
+	if srv.needsRefresh(makeJWTWithLifetime(t, 365, 0)) {
+		t.Error("刚签发的 365 天 token 不该需要续期")
+	}
+	if srv.needsRefresh(makeJWTWithLifetime(t, 365, 300)) {
+		t.Error("365 天 token 还剩 65 天时不该续期（窗口只有 30 天）")
+	}
+	if !srv.needsRefresh(makeJWTWithLifetime(t, 365, 340)) {
+		t.Error("365 天 token 只剩 25 天时应续期")
+	}
+	// 非 JWT 不触发
+	if srv.needsRefresh("ck_not-a-jwt") {
+		t.Error("非 JWT 凭证不该触发续期")
+	}
+}
+
+// makeJWTWithLifetime 造一个「总寿命 lifetimeDays、已过去 elapsedDays」的 JWT。
+func makeJWTWithLifetime(t *testing.T, lifetimeDays int, elapsedDays int) string {
+	t.Helper()
+	now := time.Now()
+	claims, err := json.Marshal(map[string]any{
+		"iat": now.AddDate(0, 0, -elapsedDays).Unix(),
+		"exp": now.AddDate(0, 0, lifetimeDays-elapsedDays).Unix(),
+		"sub": "test-subject",
+	})
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	return "eyJhbGciOiJSUzI1NiJ9." + base64.RawURLEncoding.EncodeToString(claims) + ".sig"
+}
