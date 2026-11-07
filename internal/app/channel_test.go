@@ -378,15 +378,12 @@ func TestBootstrap_AddsNewBuiltinTypesToExistingLibrary(t *testing.T) {
 }
 
 // /admin/models/sync 必须路由到 sync 处理器，不能被 /admin/models/ 当成 id="sync"。
+//
+// Go 1.22+ 的 ServeMux 按模式具体度选，注册顺序不影响结果；这个测试钉的是
+// 「sync 不能被当成一个模型 ID」，不依赖实现细节。
 func TestRoutes_SyncIsNotAModelID(t *testing.T) {
 	srv := NewServer(Config{APIKey: "k"}, newTestStore(t))
 	handler := srv.Routes()
-	req := httptest.NewRequest(http.MethodGet, "/admin/models/sync", nil)
-	req.Header.Set("Authorization", "Bearer k")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	// GET 打 sync：sync 处理器应报 405（只收 POST），若被当模型 ID 会报 405 或 404
-	// 无法区分，所以直接调 POST 看是否返回同步报告结构。
 	req2 := httptest.NewRequest(http.MethodPost, "/admin/models/sync", nil)
 	req2.Header.Set("Authorization", "Bearer k")
 	rec2 := httptest.NewRecorder()
