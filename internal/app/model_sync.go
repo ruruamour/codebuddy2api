@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -67,6 +68,31 @@ type modelSyncReport struct {
 	Enabled     []string `json:"enabled,omitempty"`      // 重置后重新启用的模型
 }
 
+// newModelSyncReport 把面板会读 .length 的切片初始化成空数组。
+// Go 的 nil 切片编码成 JSON null，面板一旦写成 r.created.length 就会抛
+// "Cannot read properties of null (reading 'length')"，看起来像拉取失败。
+// 重置模式的 deleted / pruned_types / enabled 也一并初始化：
+// 没有可删行时它们会一直是 nil，面板同样会读。
+func newModelSyncReport() modelSyncReport {
+	return modelSyncReport{
+		OK:          true,
+		Created:     []string{},
+		Updated:     []string{},
+		Missing:     []string{},
+		Skipped:     []string{},
+		Deleted:     []string{},
+		PrunedTypes: []string{},
+		Enabled:     []string{},
+	}
+}
+
+func failedModelSyncReport(detail string) modelSyncReport {
+	report := newModelSyncReport()
+	report.OK = false
+	report.Detail = detail
+	return report
+}
+
 // SyncModelCatalog 从上游目录拉一次模型元信息并写回模型表。
 //
 // 用哪个账号去拉：任取一个启用的账号即可（目录是账号无关的，只受 UA 影响）。
@@ -74,16 +100,16 @@ type modelSyncReport struct {
 func (s *Server) SyncModelCatalog(ctx context.Context) modelSyncReport {
 	account, err := s.syncCredential()
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: err.Error()}
+		return failedModelSyncReport(err.Error())
 	}
 
 	models, err := s.upstream.FetchConfigModels(ctx, account)
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: err.Error()}
+		return failedModelSyncReport(err.Error())
 	}
 
 	live := make(map[string]upstreamModel, len(models))
-	report := modelSyncReport{OK: true}
+	report := newModelSyncReport()
 	for _, model := range models {
 		if !isChatModel(model) {
 			report.Skipped = append(report.Skipped, model.ID)
@@ -96,7 +122,7 @@ func (s *Server) SyncModelCatalog(ctx context.Context) modelSyncReport {
 
 	existing, err := s.store.ListCatalog()
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: err.Error()}
+		return failedModelSyncReport(err.Error())
 	}
 	known := make(map[string]CatalogModel, len(existing))
 	order := 0
@@ -141,7 +167,7 @@ func (s *Server) SyncModelCatalog(ctx context.Context) modelSyncReport {
 			report.Created = append(report.Created, id)
 		}
 		if err := s.store.UpsertCatalogModel(next); err != nil {
-			return modelSyncReport{OK: false, Detail: "写入 " + id + ": " + err.Error()}
+			return failedModelSyncReport("写入 " + id + ": " + err.Error())
 		}
 	}
 
@@ -183,16 +209,33 @@ func (s *Server) syncCredential() (Account, error) {
 }
 
 // FetchConfigModels 用两种客户端 UA 各拉一次 /v3/config，返回并集。
+// 两次请求互不依赖，并行发：面板上的「拉取」不再串行等两轮 RTT。
 func (c *UpstreamClient) FetchConfigModels(ctx context.Context, account Account) ([]upstreamModel, error) {
+	userAgents := []string{ideUserAgent, cliConfigUA}
+	type fetchResult struct {
+		models []upstreamModel
+		err    error
+	}
+	results := make([]fetchResult, len(userAgents))
+	var wg sync.WaitGroup
+	for i, userAgent := range userAgents {
+		wg.Add(1)
+		go func(i int, userAgent string) {
+			defer wg.Done()
+			models, err := c.fetchConfigOnce(ctx, account, userAgent)
+			results[i] = fetchResult{models: models, err: err}
+		}(i, userAgent)
+	}
+	wg.Wait()
+
 	byID := map[string]upstreamModel{}
 	var lastErr error
-	for _, userAgent := range []string{ideUserAgent, cliConfigUA} {
-		models, err := c.fetchConfigOnce(ctx, account, userAgent)
-		if err != nil {
-			lastErr = err
+	for _, result := range results {
+		if result.err != nil {
+			lastErr = result.err
 			continue
 		}
-		for _, model := range models {
+		for _, model := range result.models {
 			if _, seen := byID[model.ID]; !seen {
 				byID[model.ID] = model
 			}
@@ -342,15 +385,15 @@ func firstPositive(values ...int) int {
 func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 	account, err := s.syncCredential()
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: err.Error()}
+		return failedModelSyncReport(err.Error())
 	}
 	models, err := s.upstream.FetchConfigModels(ctx, account)
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: "拉取失败，模型表未改动: " + err.Error()}
+		return failedModelSyncReport("拉取失败，模型表未改动: " + err.Error())
 	}
 
 	live := make(map[string]upstreamModel, len(models))
-	report := modelSyncReport{OK: true}
+	report := newModelSyncReport()
 	for _, model := range models {
 		if !isChatModel(model) {
 			report.Skipped = append(report.Skipped, model.ID)
@@ -359,7 +402,7 @@ func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 		live[model.ID] = model
 	}
 	if len(live) == 0 {
-		return modelSyncReport{OK: false, Detail: "上游目录没有可用的对话模型，已中止（模型表未改动）"}
+		return failedModelSyncReport("上游目录没有可用的对话模型，已中止（模型表未改动）")
 	}
 	report.Fetched = len(live)
 	sort.Strings(report.Skipped)
@@ -369,7 +412,7 @@ func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 	previousEnabled := map[string]struct{}{}
 	before, err := s.store.ListCatalog()
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: err.Error()}
+		return failedModelSyncReport(err.Error())
 	}
 	for _, item := range before {
 		if item.Enabled {
@@ -380,9 +423,11 @@ func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 	// 第一步：剪掉模型类型里指向「上游已无」的引用（否则删不掉，且重启会复活）。
 	pruned, err := s.store.PruneTypeModels(live)
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: "剪类型引用失败: " + err.Error()}
+		return failedModelSyncReport("剪类型引用失败: " + err.Error())
 	}
-	report.PrunedTypes = pruned
+	if pruned != nil {
+		report.PrunedTypes = pruned
+	}
 
 	// 第二步：删掉模型表里上游已经没有的行。
 	deleted, err := s.store.DeleteCatalogWhere(func(id string) bool {
@@ -390,9 +435,11 @@ func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 		return !alive
 	})
 	if err != nil {
-		return modelSyncReport{OK: false, Detail: "删除旧模型失败: " + err.Error()}
+		return failedModelSyncReport("删除旧模型失败: " + err.Error())
 	}
-	report.Deleted = deleted
+	if deleted != nil {
+		report.Deleted = deleted
+	}
 
 	// 第三步：按上游目录整表重建，排序按目录顺序。
 	ids := make([]string, 0, len(live))
@@ -416,7 +463,7 @@ func (s *Server) ResetModelCatalog(ctx context.Context) modelSyncReport {
 			Enabled:         wasEnabled,
 			SortOrder:       order,
 		}); err != nil {
-			return modelSyncReport{OK: false, Detail: "写入 " + id + ": " + err.Error()}
+			return failedModelSyncReport("写入 " + id + ": " + err.Error())
 		}
 		report.Created = append(report.Created, id)
 	}

@@ -984,18 +984,26 @@
     try {
       show("正在拉取上游模型目录…");
       const r = await api("/admin/models/sync" + (reset ? "?reset=1" : ""), { method: "POST" });
-      const parts = [`上游 ${r.fetched} 个对话模型`];
+      const list = (value) => Array.isArray(value) ? value : [];
+      const parts = [`上游 ${r.fetched || 0} 个对话模型`];
       if (reset) {
-        if (r.deleted && r.deleted.length) parts.push(`删除 ${r.deleted.length}: ${r.deleted.join(", ")}`);
-        if (r.pruned_types && r.pruned_types.length) parts.push(`剪引用 ${r.pruned_types.length} 处`);
-        if (r.enabled && r.enabled.length) parts.push(`保持启用 ${r.enabled.length}`);
+        const deleted = list(r.deleted);
+        const pruned = list(r.pruned_types);
+        const enabled = list(r.enabled);
+        if (deleted.length) parts.push(`删除 ${deleted.length}: ${deleted.join(", ")}`);
+        if (pruned.length) parts.push(`剪引用 ${pruned.length} 处`);
+        if (enabled.length) parts.push(`保持启用 ${enabled.length}`);
       } else {
-        if (r.created.length) parts.push(`新增 ${r.created.length}: ${r.created.join(", ")}`);
-        if (r.updated.length) parts.push(`更新 ${r.updated.length}: ${r.updated.join(", ")}`);
+        const created = list(r.created);
+        const updated = list(r.updated);
+        const missing = list(r.missing);
+        if (created.length) parts.push(`新增 ${created.length}: ${created.join(", ")}`);
+        if (updated.length) parts.push(`更新 ${updated.length}: ${updated.join(", ")}`);
         if (r.unchanged) parts.push(`未变 ${r.unchanged}`);
-        if (r.missing && r.missing.length) parts.push(`⚠ 上游已无: ${r.missing.join(", ")}`);
+        if (missing.length) parts.push(`⚠ 上游已无: ${missing.join(", ")}`);
       }
-      if (r.skipped && r.skipped.length) parts.push(`跳过非对话模型 ${r.skipped.length}`);
+      const skipped = list(r.skipped);
+      if (skipped.length) parts.push(`跳过非对话模型 ${skipped.length}`);
       show(parts.join("｜"));
       await refreshAll();
     } catch (err) { show(err.message, true); }

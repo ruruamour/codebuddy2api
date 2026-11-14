@@ -332,6 +332,11 @@ func (s *Store) readModelSettingsRow() ModelSettings {
 	return settings
 }
 
+// PoolStrategy 只读调度策略。聊天热路径每次取号都要它，不能为此扫整张模型表。
+func (s *Store) PoolStrategy(fallback string) string {
+	return NormalizePoolStrategy(s.readModelSettingsRow().PoolStrategy, fallback)
+}
+
 func (s *Store) ModelSettings(fallback []string, fallbackPoolStrategy string) (ModelSettings, error) {
 	stored := s.readModelSettingsRow()
 	catalog, err := s.ListCatalog()

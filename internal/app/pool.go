@@ -88,11 +88,7 @@ func (p *Pool) priorityOf(account Account) int {
 }
 
 func (p *Pool) poolStrategy() string {
-	settings, err := p.store.ModelSettings(p.fallbackModels, p.fallbackPoolStrategy)
-	if err != nil {
-		return p.fallbackPoolStrategy
-	}
-	return NormalizePoolStrategy(settings.PoolStrategy, p.fallbackPoolStrategy)
+	return p.store.PoolStrategy(p.fallbackPoolStrategy)
 }
 
 func (p *Pool) acquireRoundRobin(candidates []Account) (Lease, error) {
